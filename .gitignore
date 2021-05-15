@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Editors
+.vscode
+
+# Poetry
+#   Poetry recommends commiting the lock file when developing an application
+#   but it is not necessary for a library
+poetry.lock
+
+# Loxone
+lox_token.cfg
