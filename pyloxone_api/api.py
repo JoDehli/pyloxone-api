@@ -2,7 +2,7 @@
 Loxone Api
 
 For more details about this component, please refer to the documentation at
-https://github.com/JoDehli/PyLoxone
+https://github.com/JoDehli/pyloxone-api
 """
 import asyncio
 import binascii
