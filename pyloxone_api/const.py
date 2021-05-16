@@ -47,5 +47,4 @@ DEFAULT_DELAY_SCENE = 3
 DEFAULT_IP = ""
 
 EVENT = "loxone_event"
-DOMAIN = "loxone"
 LOX_CONFIG = "loxconfig"
