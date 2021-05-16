@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A package for interacting at a low(ish) level with a Loxone miniserver via the Loxone websocket API"
 authors = ["Joachim Dehli", "Lawrence Akka"]
 license = "Apache License 2.0"
+exclude = ["pyloxone_api/lox_token.cfg"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
