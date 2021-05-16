@@ -87,7 +87,6 @@ class LoxApp(object):
             verify=False,
             timeout=TIMEOUT,
         )
-
         if api_resp.status_code != 200:
             _LOGGER.error(
                 f"Could not connect to Loxone! Status code {api_resp.status_code}."
@@ -95,7 +94,6 @@ class LoxApp(object):
             return False
 
         req_data = api_resp.json()
-        print(json.dumps(req_data))
         if "LL" in req_data:
             if "Code" in req_data["LL"] and "value" in req_data["LL"]:
                 _ = req_data["LL"]["value"]
@@ -117,7 +115,6 @@ class LoxApp(object):
             verify=False,
             timeout=TIMEOUT,
         )
-
         if version_resp.status_code == 200:
             vjson = version_resp.json()
             if "LL" in vjson:

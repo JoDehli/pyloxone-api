@@ -3,9 +3,20 @@ name = "pyloxone_api"
 version = "0.1.0"
 description = "A package for interacting at a low(ish) level with a Loxone miniserver via the Loxone websocket API"
 authors = ["Joachim Dehli", "Lawrence Akka"]
-license = "Apache License 2.0"
+license = "Apache-2.0"
 exclude = ["pyloxone_api/lox_token.cfg"]
-
+homepage = "https://github.com/JoDehli/pyloxone-api"
+repository = "https://github.com/JoDehli/pyloxone-api"
+# Trove classifiers for PyPI. Licence and Language are set
+# automatically 
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: End Users/Desktop",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Topic :: Home Automation",
+]
+readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.8"
 requests-async = "^0.6.2"
@@ -17,6 +28,10 @@ black = "^21.5b1"
 pytest = "^6.2.4"
 pylint = "^2.8.2"
 flake8 = "^3.9.2"
+pytest-asyncio = "^0.15.1"
+
+[tool.poetry.urls]
+"Bug Tracker" = "https://github.com/JoDehli/pyloxone-api/issues"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
