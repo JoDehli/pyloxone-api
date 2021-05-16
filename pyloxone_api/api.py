@@ -22,7 +22,6 @@ from struct import unpack
 
 import requests_async as requests
 
-# from homeassistant.config import get_default_config_dir
 from requests.auth import HTTPBasicAuth
 
 from .const import (
@@ -55,10 +54,6 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
-
-
-def get_default_config_dir():
-    return "."
 
 
 class LoxApp(object):
@@ -193,6 +188,7 @@ class LoxWs:
         self.connect_delay = 10
         self.state = "CLOSED"
         self._secured_queue = queue.Queue(maxsize=1)
+        self.config_dir = "."
 
     @property
     def key(self):
@@ -717,9 +713,7 @@ class LoxWs:
 
     def load_token(self):
         try:
-            persist_token = os.path.join(
-                get_default_config_dir(), self._token_persist_filename
-            )
+            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
             try:
                 with open(persist_token) as f:
                     try:
@@ -744,9 +738,7 @@ class LoxWs:
 
     def delete_token(self):
         try:
-            persist_token = os.path.join(
-                get_default_config_dir(), self._token_persist_filename
-            )
+            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
             try:
                 os.remove(persist_token)
             except FileNotFoundError:
@@ -758,9 +750,7 @@ class LoxWs:
 
     def save_token(self):
         try:
-            persist_token = os.path.join(
-                get_default_config_dir(), self._token_persist_filename
-            )
+            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
 
             dict_token = {
                 "_token": self._token.token,
@@ -931,9 +921,7 @@ class LoxWs:
     async def get_token_from_file(self):
         _LOGGER.debug("try to get_token_from_file")
         try:
-            persist_token = os.path.join(
-                get_default_config_dir(), self._token_persist_filename
-            )
+            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
             if os.path.exists(persist_token):
                 if self.load_token():
                     _LOGGER.debug(
