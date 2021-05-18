@@ -72,9 +72,9 @@ class LoxApp(object):
 
     async def getJson(self):
         if self.port == 80:
-            url_api = "http://{}/jdev/cfg/apiKey".format(self.host)
+            url_api = f"http://{self.host}/jdev/cfg/apiKey"
         else:
-            url_api = "http://{}:{}/jdev/cfg/apiKey".format(self.host, self.port)
+            url_api = f"http://{self.host}:{self.port}/jdev/cfg/apiKey"
 
         api_resp = await requests.get(
             url_api,
@@ -158,7 +158,7 @@ class LoxWs:
                 vers = self._loxconfig["softwareVersion"]
                 if isinstance(vers, list) and len(vers) >= 2:
                     try:
-                        self._version = float("{}.{}".format(vers[0], vers[1]))
+                        self._version = float(f"{vers[0]}.{vers[1]}")
                     except ValueError:
                         self._version = 0
 
@@ -210,7 +210,7 @@ class LoxWs:
     async def _refresh_token(self):
         from Crypto.Hash import HMAC, SHA1, SHA256
 
-        command = "{}".format(CMD_GET_KEY)
+        command = f"{CMD_GET_KEY}"
         enc_command = await self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
@@ -236,13 +236,9 @@ class LoxWs:
 
         if token_hash is not None:
             if self._version < 10.2:
-                command = "{}{}/{}".format(
-                    CMD_REFRESH_TOKEN, token_hash, self._username
-                )
+                command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._username}"
             else:
-                command = "{}{}/{}".format(
-                    CMD_REFRESH_TOKEN_JSON_WEB, token_hash, self._username
-                )
+                command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._username}"
 
             enc_command = await self.encrypt(command)
             await self._ws.send(enc_command)
@@ -250,7 +246,7 @@ class LoxWs:
             resp_json = json.loads(message)
 
             _LOGGER.debug(
-                "Seconds before refresh: {}".format(self._token.get_seconds_to_expire())
+                f"Seconds before refresh: {self._token.get_seconds_to_expire()}"
             )
 
             if "LL" in resp_json:
@@ -287,10 +283,10 @@ class LoxWs:
         #
         self._pending = []
         for i in range(self.connect_retries):
-            _LOGGER.debug("reconnect: {} from {}".format(i + 1, self.connect_retries))
+            _LOGGER.debug(f"reconnect: {i + 1} from {self.connect_retries}")
             await self.stop()
             self.state = "CONNECTING"
-            _LOGGER.debug("wait for {} seconds...".format(self.connect_delay))
+            _LOGGER.debug(f"wait for {self.connect_delay} seconds...")
             await asyncio.sleep(self.connect_delay)
             res = await self.async_init()
             if res is True:
@@ -316,7 +312,7 @@ class LoxWs:
     async def send_secured(self, device_uuid, value, code):
         from Crypto.Hash import HMAC, SHA1, SHA256
 
-        pwd_hash_str = code + ":" + self._visual_hash.salt
+        pwd_hash_str = f"{code}:{self._visual_hash.salt}"
         if self._version < 12.0:
             m = hashlib.sha1()
         else:
@@ -336,9 +332,7 @@ class LoxWs:
                 SHA256,
             )
 
-        command = "jdev/sps/ios/{}/{}/{}".format(
-            digester.hexdigest(), device_uuid, value
-        )
+        command = f"jdev/sps/ios/{digester.hexdigest()}/{device_uuid}/{value}"
         await self._ws.send(command)
 
     async def send_secured__websocket_command(self, device_uuid, value, code):
@@ -347,8 +341,8 @@ class LoxWs:
 
     async def send_websocket_command(self, device_uuid, value):
         """Send a websocket command to the Miniserver."""
-        command = "jdev/sps/io/{}/{}".format(device_uuid, value)
-        _LOGGER.debug("send command: {}".format(command))
+        command = f"jdev/sps/io/{device_uuid}/{value}"
+        _LOGGER.debug(f"send command: {command}")
         await self._ws.send(command)
 
     async def async_init(self):
@@ -384,10 +378,10 @@ class LoxWs:
             else:
                 new_url = self._loxone_url.replace("http", "ws")
             self._ws = await wslib.connect(
-                "{}/ws/rfc6455".format(new_url), timeout=TIMEOUT
+                f"{new_url}/ws/rfc6455", timeout=TIMEOUT
             )
 
-            await self._ws.send("{}{}".format(CMD_KEY_EXCHANGE, self._session_key))
+            await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
             message = await self._ws.recv()
             await self.parse_loxone_message(message)
@@ -433,7 +427,7 @@ class LoxWs:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
             return False
 
-        command = "{}".format(CMD_ENABLE_UPDATES)
+        command = f"{CMD_ENABLE_UPDATES}"
         enc_command = await self.encrypt(command)
         await self._ws.send(enc_command)
         if self._ws.closed:
@@ -446,7 +440,7 @@ class LoxWs:
         return True
 
     async def get_visual_hash(self):
-        command = "{}{}".format(CMD_GET_VISUAL_PASSWD, self._username)
+        command = f"{CMD_GET_VISUAL_PASSWD}{self._username}"
         enc_command = await self.encrypt(command)
         await self._ws.send(enc_command)
 
@@ -537,9 +531,7 @@ class LoxWs:
                 packet = message[start:end]
                 event_uuid = uuid.UUID(bytes_le=packet[0:16])
                 fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
-                uuidstr = "{}-{}-{}-{}{}".format(
-                    fields[0], fields[1], fields[2], fields[3], fields[4]
-                )
+                uuidstr = f"{fields[0]}-{fields[1]}-{fields[2]}-{fields[3]}{fields[4]}"
                 value = unpack("d", packet[16:24])[0]
                 event_dict[uuidstr] = value
                 start += 24
@@ -582,7 +574,7 @@ class LoxWs:
 
                 first = second
                 second = first + text_length
-                message_str = unpack("{}s".format(text_length), message[first:second])[
+                message_str = unpack(f"{text_length}s", message[first:second])[
                     0
                 ]
                 start += (floor((4 + text_length + 16 + 16 - 1) / 4) + 1) * 4
@@ -602,7 +594,7 @@ class LoxWs:
         token_hash = await self.hash_token()
         if token_hash is ERROR_VALUE:
             return ERROR_VALUE
-        command = "{}{}/{}".format(CMD_AUTH_WITH_TOKEN, token_hash, self._username)
+        command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._username}"
         enc_command = await self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
@@ -623,7 +615,7 @@ class LoxWs:
         try:
             from Crypto.Hash import HMAC, SHA1, SHA256
 
-            command = "{}".format(CMD_GET_KEY)
+            command = f"{CMD_GET_KEY}"
             enc_command = await self.encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
@@ -653,7 +645,7 @@ class LoxWs:
 
     async def acquire_token(self):
         _LOGGER.debug("acquire_tokend")
-        command = "{}{}".format(CMD_GET_KEY_AND_SALT, self._username)
+        command = f"{CMD_GET_KEY_AND_SALT}{self._username}"
         enc_command = await self.encrypt(command)
 
         if not self._encryption_ready or self._ws is None:
@@ -768,7 +760,7 @@ class LoxWs:
             return True
         except IOError:
             _LOGGER.debug("error save_token...")
-            _LOGGER.debug("tokenpath: {}".format(persist_token))
+            _LOGGER.debug(f"tokenpath: {persist_token}")
             return ERROR_VALUE
 
     async def encrypt(self, command):
@@ -779,11 +771,11 @@ class LoxWs:
         if self._salt != "" and self.new_salt_needed():
             prev_salt = self._salt
             self._salt = self.genarate_salt()
-            s = "nextSalt/{}/{}/{}\0".format(prev_salt, self._salt, command)
+            s = f"nextSalt/{prev_salt}/{self._salt}/{command}\x00"
         else:
             if self._salt == "":
                 self._salt = self.genarate_salt()
-            s = "salt/{}/{}\0".format(self._salt, command)
+            s = f"salt/{self._salt}/{command}\x00"
         s = Padding.pad(bytes(s, "utf-8"), 16)
         aes_cipher = self.get_new_aes_chiper()
         encrypted = aes_cipher.encrypt(s)
@@ -795,14 +787,14 @@ class LoxWs:
         try:
             from Crypto.Hash import HMAC, SHA1, SHA256
 
-            pwd_hash_str = self._pasword + ":" + key_salt.salt
+            pwd_hash_str = f"{self._pasword}:{key_salt.salt}"
             if key_salt.hash_alg == "SHA1" or self._version < 12.0:
                 m = hashlib.sha1()
             else:
                 m = hashlib.sha256()
             m.update(pwd_hash_str.encode("utf-8"))
             pwd_hash = m.hexdigest().upper()
-            pwd_hash = self._username + ":" + pwd_hash
+            pwd_hash = f"{self._username}:{pwd_hash}"
 
             if key_salt.hash_alg == "SHA1" or self._version < 12.0:
                 digester = HMAC.new(
@@ -852,7 +844,7 @@ class LoxWs:
         try:
             aes_key = binascii.hexlify(self._key).decode("utf-8")
             iv = binascii.hexlify(self._iv).decode("utf-8")
-            sess = aes_key + ":" + iv
+            sess = f"{aes_key}:{iv}"
             sess = self._rsa_cipher.encrypt(bytes(sess, "utf-8"))
             self._session_key = b64encode(sess).decode("utf-8")
             _LOGGER.debug("generate_session_key successfully...")
@@ -888,12 +880,12 @@ class LoxWs:
             return True
         except KeyError:
             _LOGGER.debug("init_rsa_cipher error...")
-            _LOGGER.debug("{}".format(traceback.print_exc()))
+            _LOGGER.debug(f"{traceback.print_exc()}")
             return False
 
     async def get_public_key(self):
         command = f"{self._loxone_url}/{CMD_GET_PUBLIC_KEY}"
-        _LOGGER.debug("try to get public key: {}".format(command))
+        _LOGGER.debug(f"try to get public key: {command}")
 
         try:
             response = await requests.get(
@@ -903,7 +895,7 @@ class LoxWs:
             return False
 
         if response.status_code != 200:
-            _LOGGER.debug("error get_public_key: {}".format(response.status_code))
+            _LOGGER.debug(f"error get_public_key: {response.status_code}")
             return False
         try:
             resp_json = json.loads(response.text)
@@ -925,11 +917,11 @@ class LoxWs:
             if os.path.exists(persist_token):
                 if self.load_token():
                     _LOGGER.debug(
-                        "token successfully loaded from file: {}".format(persist_token)
+                        f"token successfully loaded from file: {persist_token}"
                     )
         except FileExistsError:
-            _LOGGER.debug("error loading token {}".format(persist_token))
-            _LOGGER.debug("{}".format(traceback.print_exc()))
+            _LOGGER.debug(f"error loading token {persist_token}")
+            _LOGGER.debug(f"{traceback.print_exc()}")
 
 
 # Loxone Stuff
