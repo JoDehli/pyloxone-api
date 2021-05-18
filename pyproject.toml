@@ -19,9 +19,9 @@ classifiers = [
 readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.8"
-requests-async = "^0.6.2"
 pycryptodome = "^3.10.1"
 websockets = "^9.0.1"
+httpx = "^0.18.1"
 
 [tool.poetry.dev-dependencies]
 black = "^21.5b1"

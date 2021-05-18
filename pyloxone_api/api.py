@@ -20,9 +20,7 @@ from base64 import b64encode
 from datetime import datetime, timezone
 from struct import unpack
 
-import requests_async as requests
-
-from requests.auth import HTTPBasicAuth
+import httpx
 
 from .const import (
     AES_KEY_SIZE,
@@ -76,12 +74,10 @@ class LoxApp:
         else:
             url_api = f"http://{self.host}:{self.port}/jdev/cfg/apiKey"
 
-        api_resp = await requests.get(
-            url_api,
-            auth=HTTPBasicAuth(self.lox_user, self.lox_pass),
-            verify=False,
-            timeout=TIMEOUT,
-        )
+        async with httpx.AsyncClient(
+            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+        ) as client:
+            api_resp = await client.get(url_api)
         if api_resp.status_code != 200:
             _LOGGER.error(
                 f"Could not connect to Loxone! Status code {api_resp.status_code}."
@@ -101,15 +97,13 @@ class LoxApp:
                     if "httpsStatus" in _:
                         self.https_status = _["httpsStatus"]
 
-        self.url = api_resp.url.replace("/jdev/cfg/apiKey", "")
+        self.url = api_resp.url.copy_with(path="")
 
         url_version = f"{self.url}/jdev/cfg/version"
-        version_resp = await requests.get(
-            url_version,
-            auth=HTTPBasicAuth(self.lox_user, self.lox_pass),
-            verify=False,
-            timeout=TIMEOUT,
-        )
+        async with httpx.AsyncClient(
+            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+        ) as client:
+            version_resp = await client.get(url_version)
         if version_resp.status_code == 200:
             vjson = version_resp.json()
             if "LL" in vjson:
@@ -117,12 +111,10 @@ class LoxApp:
                     self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
 
         url_lox_app = f"{self.url}{self.loxapppath}"
-        my_response = await requests.get(
-            url_lox_app,
-            auth=HTTPBasicAuth(self.lox_user, self.lox_pass),
-            verify=False,
-            timeout=TIMEOUT,
-        )
+        async with httpx.AsyncClient(
+            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+        ) as client:
+            my_response = await client.get(url_lox_app)
         if my_response.status_code == 200:
             self.json = my_response.json()
             if self.version is not None:
@@ -373,13 +365,11 @@ class LoxWs:
 
         # Exchange keys
         try:
-            if self._loxone_url.startswith("https:"):
-                new_url = self._loxone_url.replace("https", "wss")
+            if self._loxone_url.scheme == "https":
+                new_url = self._loxone_url.copy_with(scheme="wss")
             else:
-                new_url = self._loxone_url.replace("http", "ws")
-            self._ws = await wslib.connect(
-                f"{new_url}/ws/rfc6455", timeout=TIMEOUT
-            )
+                new_url = self._loxone_url.copy_with(scheme="ws")
+            self._ws = await wslib.connect(f"{new_url}/ws/rfc6455", timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
@@ -574,9 +564,7 @@ class LoxWs:
 
                 first = second
                 second = first + text_length
-                message_str = unpack(f"{text_length}s", message[first:second])[
-                    0
-                ]
+                message_str = unpack(f"{text_length}s", message[first:second])[0]
                 start += (floor((4 + text_length + 16 + 16 - 1) / 4) + 1) * 4
                 event_dict[uuidstr] = message_str.decode("utf-8")
                 return start
@@ -888,9 +876,10 @@ class LoxWs:
         _LOGGER.debug(f"try to get public key: {command}")
 
         try:
-            response = await requests.get(
-                command, auth=(self._username, self._pasword), timeout=TIMEOUT
-            )
+            async with httpx.AsyncClient(
+                auth=(self._username, self._pasword), timeout=TIMEOUT
+            ) as client:
+                response = await client.get(command)
         except:
             return False
 
