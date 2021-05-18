@@ -56,7 +56,7 @@ _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
 
 
-class LoxApp(object):
+class LoxApp:
     def __init__(self):
         self.host = None
         self.port = None
@@ -352,7 +352,7 @@ class LoxWs:
         # Read token from file
         try:
             await self.get_token_from_file()
-        except IOError:
+        except OSError:
             _LOGGER.debug("error token read")
 
         # Get public key from Loxone
@@ -724,7 +724,7 @@ class LoxWs:
 
             _LOGGER.debug("load_token successfully...")
             return True
-        except IOError:
+        except OSError:
             _LOGGER.debug("error load_token...")
             return ERROR_VALUE
 
@@ -736,7 +736,7 @@ class LoxWs:
             except FileNotFoundError:
                 os.remove(self._token_persist_filename)
 
-        except IOError:
+        except OSError:
             _LOGGER.debug("error deleting token...")
             return ERROR_VALUE
 
@@ -758,7 +758,7 @@ class LoxWs:
 
             _LOGGER.debug("save_token successfully...")
             return True
-        except IOError:
+        except OSError:
             _LOGGER.debug("error save_token...")
             _LOGGER.debug(f"tokenpath: {persist_token}")
             return ERROR_VALUE
