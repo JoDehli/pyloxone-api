@@ -73,7 +73,6 @@ class LoxApp:
             url_api = f"http://{self.host}/jdev/cfg/apiKey"
         else:
             url_api = f"http://{self.host}:{self.port}/jdev/cfg/apiKey"
-
         async with httpx.AsyncClient(
             auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
         ) as client:
@@ -366,10 +365,10 @@ class LoxWs:
         # Exchange keys
         try:
             if self._loxone_url.scheme == "https":
-                new_url = self._loxone_url.copy_with(scheme="wss")
+                new_url = self._loxone_url.copy_with(scheme="wss", path="/ws/rfc6455")
             else:
-                new_url = self._loxone_url.copy_with(scheme="ws")
-            self._ws = await wslib.connect(f"{new_url}/ws/rfc6455", timeout=TIMEOUT)
+                new_url = self._loxone_url.copy_with(scheme="ws", path="/ws/rfc6455")
+            self._ws = await wslib.connect(str(new_url), timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
