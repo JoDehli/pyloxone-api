@@ -6,7 +6,6 @@ https://github.com/JoDehli/pyloxone-api
 """
 import asyncio
 import binascii
-import datetime
 import hashlib
 import json
 import logging
@@ -17,7 +16,7 @@ import traceback
 import urllib.request as req
 import uuid
 from base64 import b64encode
-from datetime import datetime, timezone
+from datetime import datetime
 from struct import unpack
 
 import httpx
@@ -202,7 +201,7 @@ class LoxWs:
         from Crypto.Hash import HMAC, SHA1, SHA256
 
         command = f"{CMD_GET_KEY}"
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
         resp_json = json.loads(message)
@@ -231,7 +230,7 @@ class LoxWs:
             else:
                 command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._username}"
 
-            enc_command = await self.encrypt(command)
+            enc_command = self.encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
             resp_json = json.loads(message)
@@ -257,7 +256,7 @@ class LoxWs:
         self._pending.append(keep_alive_task)
         self._pending.append(refresh_token_task)
 
-        done, pending = await asyncio.wait(
+        _, pending = await asyncio.wait(
             [consumer_task, keep_alive_task, refresh_token_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
@@ -342,7 +341,7 @@ class LoxWs:
         _LOGGER.debug("try to read token")
         # Read token from file
         try:
-            await self.get_token_from_file()
+            self.get_token_from_file()
         except OSError:
             _LOGGER.debug("error token read")
 
@@ -373,7 +372,7 @@ class LoxWs:
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
             message = await self._ws.recv()
-            await self.parse_loxone_message(message)
+            self.parse_loxone_message(message)
             if self._current_message_typ != 0:
                 _LOGGER.debug("error by getting the session key response...")
                 return ERROR_VALUE
@@ -417,7 +416,7 @@ class LoxWs:
             return False
 
         command = f"{CMD_ENABLE_UPDATES}"
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
         if self._ws.closed:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
@@ -430,7 +429,7 @@ class LoxWs:
 
     async def get_visual_hash(self):
         command = f"{CMD_GET_VISUAL_PASSWD}{self._username}"
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
 
     async def ws_listen(self):
@@ -458,7 +457,7 @@ class LoxWs:
             if self._current_message_typ == 6:
                 _LOGGER.debug("Keep alive response received...")
         else:
-            parsed_data = await self._parse_loxone_message(message)
+            parsed_data = self._parse_loxone_message(message)
             _LOGGER.debug(
                 "message [type:{}]):{}".format(
                     self._current_message_typ, json.dumps(parsed_data, indent=2)
@@ -504,7 +503,7 @@ class LoxWs:
             self._current_message_typ = None
             await asyncio.sleep(0)
 
-    async def _parse_loxone_message(self, message):
+    def _parse_loxone_message(self, message):
         """Parser of the Loxone message."""
         event_dict = {}
         if self._current_message_typ == 0:
@@ -516,7 +515,7 @@ class LoxWs:
             num = length / 24
             start = 0
             end = 24
-            for i in range(int(num)):
+            for _ in range(int(num)):
                 packet = message[start:end]
                 event_uuid = uuid.UUID(bytes_le=packet[0:16])
                 fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
@@ -548,13 +547,6 @@ class LoxWs:
 
                 icon_uuid = uuid.UUID(bytes_le=message[first:second])
                 icon_uuid_fields = icon_uuid.urn.replace("urn:uuid:", "").split("-")
-                uuidiconstr = "{}-{}-{}-{}{}".format(
-                    icon_uuid_fields[0],
-                    icon_uuid_fields[1],
-                    icon_uuid_fields[2],
-                    icon_uuid_fields[3],
-                    icon_uuid_fields[4],
-                )
 
                 first = second
                 second += 4
@@ -582,10 +574,10 @@ class LoxWs:
         if token_hash is ERROR_VALUE:
             return ERROR_VALUE
         command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._username}"
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        await self.parse_loxone_message(message)
+        self.parse_loxone_message(message)
         message = await self._ws.recv()
         resp_json = json.loads(message)
         if "LL" in resp_json:
@@ -603,10 +595,10 @@ class LoxWs:
             from Crypto.Hash import HMAC, SHA1, SHA256
 
             command = f"{CMD_GET_KEY}"
-            enc_command = await self.encrypt(command)
+            enc_command = self.encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
-            await self.parse_loxone_message(message)
+            self.parse_loxone_message(message)
             message = await self._ws.recv()
             resp_json = json.loads(message)
             if "LL" in resp_json:
@@ -633,14 +625,14 @@ class LoxWs:
     async def acquire_token(self):
         _LOGGER.debug("acquire_tokend")
         command = f"{CMD_GET_KEY_AND_SALT}{self._username}"
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
 
         if not self._encryption_ready or self._ws is None:
             return ERROR_VALUE
 
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        await self.parse_loxone_message(message)
+        self.parse_loxone_message(message)
 
         message = await self._ws.recv()
 
@@ -667,10 +659,10 @@ class LoxWs:
                 )
             )
 
-        enc_command = await self.encrypt(command)
+        enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        await self.parse_loxone_message(message)
+        self.parse_loxone_message(message)
         message = await self._ws.recv()
 
         resp_json = json.loads(message)
@@ -750,7 +742,7 @@ class LoxWs:
             _LOGGER.debug(f"tokenpath: {persist_token}")
             return ERROR_VALUE
 
-    async def encrypt(self, command):
+    def encrypt(self, command):
         from Crypto.Util import Padding
 
         if not self._encryption_ready:
@@ -816,7 +808,7 @@ class LoxWs:
             return True
         return False
 
-    async def parse_loxone_message(self, message):
+    def parse_loxone_message(self, message):
         if len(message) == 8:
             try:
                 unpacked_data = unpack("ccccI", message)
@@ -898,7 +890,7 @@ class LoxWs:
             return False
         return True
 
-    async def get_token_from_file(self):
+    def get_token_from_file(self):
         _LOGGER.debug("try to get_token_from_file")
         try:
             persist_token = os.path.join(self.config_dir, self._token_persist_filename)
