@@ -17,9 +17,16 @@ import urllib.request as req
 import uuid
 from base64 import b64encode
 from datetime import datetime
-from struct import unpack
+from math import floor  # pylint: disable=no-name-in-module
+from struct import unpack  # pylint: disable=no-name-in-module
 
 import httpx
+import websockets as wslib
+from Crypto.Cipher import AES, PKCS1_v1_5
+from Crypto.Hash import HMAC, SHA1, SHA256
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+from Crypto.Util import Padding
 
 from .const import (
     AES_KEY_SIZE,
@@ -155,8 +162,8 @@ class LoxWs:
         if self._token_persist_filename is None:
             self._token_persist_filename = DEFAULT_TOKEN_PERSIST_NAME
 
-        self._iv = gen_init_vec()
-        self._key = gen_key()
+        self._iv = get_random_bytes(IV_BYTES)
+        self._key = get_random_bytes(AES_KEY_SIZE)
         self._token = LxToken()
         self._token_valid_until = 0
         self._salt = ""
@@ -198,8 +205,6 @@ class LoxWs:
         pass
 
     async def _refresh_token(self):
-        from Crypto.Hash import HMAC, SHA1, SHA256
-
         command = f"{CMD_GET_KEY}"
         enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
@@ -300,8 +305,6 @@ class LoxWs:
                 await self._ws.send("keepalive")
 
     async def send_secured(self, device_uuid, value, code):
-        from Crypto.Hash import HMAC, SHA1, SHA256
-
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"
         if self._version < 12.0:
             m = hashlib.sha1()
@@ -336,8 +339,6 @@ class LoxWs:
         await self._ws.send(command)
 
     async def async_init(self):
-        import websockets as wslib
-
         _LOGGER.debug("try to read token")
         # Read token from file
         try:
@@ -367,6 +368,7 @@ class LoxWs:
                 new_url = self._loxone_url.copy_with(scheme="wss", path="/ws/rfc6455")
             else:
                 new_url = self._loxone_url.copy_with(scheme="ws", path="/ws/rfc6455")
+            # pylint: disable=no-member
             self._ws = await wslib.connect(str(new_url), timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
@@ -499,6 +501,7 @@ class LoxWs:
 
             if self.message_call_back is not None:
                 if "LL" not in parsed_data and parsed_data != {}:
+                    # pylint: disable=not-callable
                     await self.message_call_back(parsed_data)
             self._current_message_typ = None
             await asyncio.sleep(0)
@@ -525,8 +528,6 @@ class LoxWs:
                 start += 24
                 end += 24
         elif self._current_message_typ == 3:
-            from math import floor
-
             start = 0
 
             def get_text(message, start, offset):
@@ -592,8 +593,6 @@ class LoxWs:
 
     async def hash_token(self):
         try:
-            from Crypto.Hash import HMAC, SHA1, SHA256
-
             command = f"{CMD_GET_KEY}"
             enc_command = self.encrypt(command)
             await self._ws.send(enc_command)
@@ -743,8 +742,6 @@ class LoxWs:
             return ERROR_VALUE
 
     def encrypt(self, command):
-        from Crypto.Util import Padding
-
         if not self._encryption_ready:
             return command
         if self._salt != "" and self.new_salt_needed():
@@ -764,8 +761,6 @@ class LoxWs:
 
     def hash_credentials(self, key_salt):
         try:
-            from Crypto.Hash import HMAC, SHA1, SHA256
-
             pwd_hash_str = f"{self._pasword}:{key_salt.salt}"
             if key_salt.hash_alg == "SHA1" or self._version < 12.0:
                 m = hashlib.sha1()
@@ -790,8 +785,6 @@ class LoxWs:
             return None
 
     def genarate_salt(self):
-        from Crypto.Random import get_random_bytes
-
         salt = get_random_bytes(SALT_BYTES)
         salt = binascii.hexlify(salt).decode("utf-8")
         salt = req.pathname2url(salt)
@@ -834,8 +827,6 @@ class LoxWs:
 
     def get_new_aes_chiper(self):
         try:
-            from Crypto.Cipher import AES
-
             _new_aes = AES.new(self._key, AES.MODE_CBC, self._iv)
             _LOGGER.debug("get_new_aes_chiper successfully...")
             return _new_aes
@@ -845,9 +836,6 @@ class LoxWs:
 
     def init_rsa_cipher(self):
         try:
-            from Crypto.Cipher import PKCS1_v1_5
-            from Crypto.PublicKey import RSA
-
             self._public_key = self._public_key.replace(
                 "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
             )
@@ -905,16 +893,6 @@ class LoxWs:
 
 
 # Loxone Stuff
-def gen_init_vec():
-    from Crypto.Random import get_random_bytes
-
-    return get_random_bytes(IV_BYTES)
-
-
-def gen_key():
-    from Crypto.Random import get_random_bytes
-
-    return get_random_bytes(AES_KEY_SIZE)
 
 
 def time_elapsed_in_seconds():
