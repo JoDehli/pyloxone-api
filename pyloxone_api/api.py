@@ -306,19 +306,23 @@ class LoxWs:
 
     async def send_secured(self, device_uuid, value, code):
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"
-        if self._version < 12.0:
+        if self._visual_hash.hash_alg == "SHA1":
             m = hashlib.sha1()
-        else:
+        elif self._visual_hash.hash_alg == "SHA256":
             m = hashlib.sha256()
+        else:
+            _LOGGER.error("Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg))
+            return -1
+
         m.update(pwd_hash_str.encode("utf-8"))
         pwd_hash = m.hexdigest().upper()
-        if self._version < 12.0:
+        if self._visual_hash.hash_alg == "SHA1":
             digester = HMAC.new(
                 binascii.unhexlify(self._visual_hash.key),
                 pwd_hash.encode("utf-8"),
                 SHA1,
             )
-        else:
+        elif self._visual_hash.hash_alg == "SHA256":
             digester = HMAC.new(
                 binascii.unhexlify(self._visual_hash.key),
                 pwd_hash.encode("utf-8"),
@@ -484,8 +488,7 @@ class LoxWs:
                             and "salt" in resp_json["LL"]["value"]
                         ):
                             key_and_salt = LxJsonKeySalt()
-                            key_and_salt.key = resp_json["LL"]["value"]["key"]
-                            key_and_salt.salt = resp_json["LL"]["value"]["salt"]
+                            key_and_salt.read_user_salt_responce(parsed_data)
                             key_and_salt.time_elapsed_in_seconds = (
                                 time_elapsed_in_seconds()
                             )
@@ -604,18 +607,22 @@ class LoxWs:
                 if "value" in resp_json["LL"]:
                     key = resp_json["LL"]["value"]
                     if key != "":
-                        if self._token.hash_alg == "SHA1" or self._version < 12.0:
+                        if self._token.hash_alg == "SHA1":
                             digester = HMAC.new(
                                 binascii.unhexlify(key),
                                 self._token.token.encode("utf-8"),
                                 SHA1,
                             )
-                        else:
+                        elif self._token.hash_alg == "SHA256":
                             digester = HMAC.new(
                                 binascii.unhexlify(key),
                                 self._token.token.encode("utf-8"),
                                 SHA256,
                             )
+                        else:
+                            _LOGGER.error("Unrecognised hash algorithm: {}".format(self._token.hash_alg))
+                            return ERROR_VALUE
+
                         return digester.hexdigest()
             return ERROR_VALUE
         except:
@@ -762,19 +769,23 @@ class LoxWs:
     def hash_credentials(self, key_salt):
         try:
             pwd_hash_str = f"{self._pasword}:{key_salt.salt}"
-            if key_salt.hash_alg == "SHA1" or self._version < 12.0:
+            if key_salt.hash_alg == "SHA1":
                 m = hashlib.sha1()
-            else:
+            elif key_salt.hash_alg == "SHA256":
                 m = hashlib.sha256()
+            else:
+                _LOGGER.error("Unrecognised hash algorithm: {}".format(key_salt.hash_alg))
+                return None
+
             m.update(pwd_hash_str.encode("utf-8"))
             pwd_hash = m.hexdigest().upper()
             pwd_hash = f"{self._username}:{pwd_hash}"
 
-            if key_salt.hash_alg == "SHA1" or self._version < 12.0:
+            if key_salt.hash_alg == "SHA1":
                 digester = HMAC.new(
                     binascii.unhexlify(key_salt.key), pwd_hash.encode("utf-8"), SHA1
                 )
-            else:
+            elif key_salt.hash_alg == "SHA256":
                 digester = HMAC.new(
                     binascii.unhexlify(key_salt.key), pwd_hash.encode("utf-8"), SHA256
                 )
@@ -912,11 +923,11 @@ class LxJsonKeySalt:
         value = js["LL"]["value"]
         self.key = value["key"]
         self.salt = value["salt"]
-        self.hash_alg = value.get("hashAlg", "SHA256")
+        self.hash_alg = value.get("hashAlg", "SHA1")
 
 
 class LxToken:
-    def __init__(self, token="", vaild_until="", hash_alg="SHA256"):
+    def __init__(self, token="", vaild_until="", hash_alg="SHA1"):
         self._token = token
         self._vaild_until = vaild_until
         self._hash_alg = hash_alg
