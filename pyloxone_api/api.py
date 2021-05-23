@@ -9,14 +9,12 @@ import binascii
 import hashlib
 import json
 import logging
-import os
 import queue
 import time
 import traceback
 import urllib.request as req
 import uuid
 from base64 import b64encode
-from datetime import datetime
 from math import floor  # pylint: disable=no-name-in-module
 from struct import unpack  # pylint: disable=no-name-in-module
 
@@ -52,8 +50,9 @@ from .const import (
     SALT_MAX_USE_COUNT,
     TIMEOUT,
     TOKEN_PERMISSION,
-    TOKEN_REFRESH_RETRY_COUNT,
 )
+
+from .lxtoken import LxToken
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.DEBUG)
@@ -61,15 +60,12 @@ _LOGGER.addHandler(logging.StreamHandler())
 
 
 class LoxApp:
-    def __init__(self):
-        self.host = None
-        self.port = None
-        self.loxapppath = LOXAPPPATH
-
-        self.lox_user = None
-        self.lox_pass = None
+    def __init__(self, host=None, port=None, user=None, password=None):
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
         self.json = None
-        self.responsecode = None
         self.version = None
         self.https_status = None
         self.url = ""
@@ -80,7 +76,7 @@ class LoxApp:
         else:
             url_api = f"http://{self.host}:{self.port}/jdev/cfg/apiKey"
         async with httpx.AsyncClient(
-            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
         ) as client:
             api_resp = await client.get(url_api)
         if api_resp.status_code != 200:
@@ -106,7 +102,7 @@ class LoxApp:
 
         url_version = f"{self.url}/jdev/cfg/version"
         async with httpx.AsyncClient(
-            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
         ) as client:
             version_resp = await client.get(url_version)
         if version_resp.status_code == 200:
@@ -115,41 +111,38 @@ class LoxApp:
                 if "Code" in vjson["LL"] and "value" in vjson["LL"]:
                     self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
 
-        url_lox_app = f"{self.url}{self.loxapppath}"
         async with httpx.AsyncClient(
-            auth=(self.lox_user, self.lox_pass), verify=False, timeout=TIMEOUT
+            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
         ) as client:
-            my_response = await client.get(url_lox_app)
-        if my_response.status_code == 200:
+            my_response = await client.get(f"{self.url}{LOXAPPPATH}")
+        status = my_response.status_code
+        if status == 200:
             self.json = my_response.json()
             if self.version is not None:
                 self.json["softwareVersion"] = self.version
         else:
             self.json = None
-        self.responsecode = my_response.status_code
-        return self.responsecode
+        return status
 
 
 class LoxWs:
     def __init__(
         self,
+        host=None,
+        port=None,
         user=None,
         password=None,
-        host="http://192.168.1.225 ",
-        port="8080",
-        token_persist_filename=None,
+        token_persist_filename=DEFAULT_TOKEN_PERSIST_NAME,
         loxconfig=None,
         loxone_url=None,
     ):
-        self._username = user
-        self._pasword = password
         self._host = host
         self._port = port
+        self._user = user
+        self._password = password
         self._loxone_url = loxone_url
-        self._token_refresh_count = TOKEN_REFRESH_RETRY_COUNT
         self._token_persist_filename = token_persist_filename
         self._loxconfig = loxconfig
-        self._version = 0
         if self._loxconfig is not None:
             if "softwareVersion" in self._loxconfig:
                 vers = self._loxconfig["softwareVersion"]
@@ -158,14 +151,9 @@ class LoxWs:
                         self._version = float(f"{vers[0]}.{vers[1]}")
                     except ValueError:
                         self._version = 0
-
-        if self._token_persist_filename is None:
-            self._token_persist_filename = DEFAULT_TOKEN_PERSIST_NAME
-
+        self._loxconfig = loxconfig
         self._iv = get_random_bytes(IV_BYTES)
         self._key = get_random_bytes(AES_KEY_SIZE)
-        self._token = LxToken()
-        self._token_valid_until = 0
         self._salt = ""
         self._salt_used_count = 0
         self._salt_time_stamp = 0
@@ -176,7 +164,6 @@ class LoxWs:
         self._current_message_typ = None
         self._encryption_ready = False
         self._visual_hash = None
-        self._keep_alive_task = None
 
         self.message_call_back = None
 
@@ -186,75 +173,67 @@ class LoxWs:
         self._secured_queue = queue.Queue(maxsize=1)
         self.config_dir = "."
 
-    @property
-    def key(self):
-        return self._key
-
-    @property
-    def iv(self):
-        return self._iv
+        self._token = LxToken(
+            token_dir=self.config_dir,
+            token_filename=self._token_persist_filename,
+        )
 
     async def refresh_token(self):
         while True:
-            seconds_to_refresh = self._token.get_seconds_to_expire()
+            seconds_to_refresh = self._token.seconds_to_expire()
             await asyncio.sleep(seconds_to_refresh)
-            await self._refresh_token()
-
-    async def decrypt(self, message):
-        pass
-
-    async def _refresh_token(self):
-        command = f"{CMD_GET_KEY}"
-        enc_command = self.encrypt(command)
-        await self._ws.send(enc_command)
-        message = await self._ws.recv()
-        resp_json = json.loads(message)
-        token_hash = None
-        if "LL" in resp_json:
-            if "value" in resp_json["LL"]:
-                key = resp_json["LL"]["value"]
-                if key == "":
-                    if self._version < 12.0:
-                        digester = HMAC.new(
-                            binascii.unhexlify(key),
-                            self._token.token.encode("utf-8"),
-                            SHA1,
-                        )
-                    else:
-                        digester = HMAC.new(
-                            binascii.unhexlify(key),
-                            self._token.token.encode("utf-8"),
-                            SHA256,
-                        )
-                    token_hash = digester.hexdigest()
-
-        if token_hash is not None:
-            if self._version < 10.2:
-                command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._username}"
-            else:
-                command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._username}"
-
+            command = f"{CMD_GET_KEY}"
             enc_command = self.encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
             resp_json = json.loads(message)
-
-            _LOGGER.debug(
-                f"Seconds before refresh: {self._token.get_seconds_to_expire()}"
-            )
-
+            token_hash = None
             if "LL" in resp_json:
                 if "value" in resp_json["LL"]:
-                    if "validUntil" in resp_json["LL"]["value"]:
-                        self._token.set_vaild_until(
-                            resp_json["LL"]["value"]["validUntil"]
-                        )
-            self.save_token()
+                    key = resp_json["LL"]["value"]
+                    if key == "":
+                        if self._version < 12.0:
+                            digester = HMAC.new(
+                                binascii.unhexlify(key),
+                                self._token.token.encode("utf-8"),
+                                SHA1,
+                            )
+                        else:
+                            digester = HMAC.new(
+                                binascii.unhexlify(key),
+                                self._token.token.encode("utf-8"),
+                                SHA256,
+                            )
+                        token_hash = digester.hexdigest()
+
+            if token_hash is not None:
+                if self._version < 10.2:
+                    command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
+                else:
+                    command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
+
+                enc_command = self.encrypt(command)
+                await self._ws.send(enc_command)
+                message = await self._ws.recv()
+                resp_json = json.loads(message)
+
+                _LOGGER.debug(
+                    f"Seconds before refresh: {self._token.seconds_to_expire()}"
+                )
+
+                if "LL" in resp_json:
+                    if "value" in resp_json["LL"]:
+                        if "validUntil" in resp_json["LL"]["value"]:
+                            self._token.valid_until = resp_json["LL"]["value"][
+                                "validUntil"
+                            ]
+
+                self._token.save()
 
     async def start(self):
-        consumer_task = asyncio.ensure_future(self.ws_listen())
-        keep_alive_task = asyncio.ensure_future(self.keep_alive(KEEP_ALIVE_PERIOD))
-        refresh_token_task = asyncio.ensure_future(self.refresh_token())
+        consumer_task = self.ws_listen()
+        keep_alive_task = self.keep_alive(KEEP_ALIVE_PERIOD)
+        refresh_token_task = self.refresh_token()
 
         _, pending = await asyncio.wait(
             [consumer_task, keep_alive_task, refresh_token_task],
@@ -329,7 +308,10 @@ class LoxWs:
 
     async def send_secured__websocket_command(self, device_uuid, value, code):
         self._secured_queue.put((device_uuid, value, code))
-        await self.get_visual_hash()
+        # Get visual hash
+        command = f"{CMD_GET_VISUAL_PASSWD}{self._user}"
+        enc_command = self.encrypt(command)
+        await self._ws.send(enc_command)
 
     async def send_websocket_command(self, device_uuid, value):
         """Send a websocket command to the Miniserver."""
@@ -338,10 +320,12 @@ class LoxWs:
         await self._ws.send(command)
 
     async def async_init(self):
-        _LOGGER.debug("try to read token")
         # Read token from file
+
+        _LOGGER.debug("try to get_token_from_file")
         try:
-            self.get_token_from_file()
+            if self._token.load():
+                _LOGGER.debug("token successfully loaded from file")
         except OSError:
             _LOGGER.debug("error token read")
 
@@ -352,12 +336,37 @@ class LoxWs:
             return ERROR_VALUE
 
         # Init resa cipher
-        rsa_gen = self.init_rsa_cipher()
+        try:
+            self._public_key = self._public_key.replace(
+                "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
+            )
+            public_key = self._public_key.replace(
+                "-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n"
+            )
+            self._rsa_cipher = PKCS1_v1_5.new(RSA.importKey(public_key))
+            _LOGGER.debug("init_rsa_cipher successfully...")
+            result = True
+        except KeyError:
+            _LOGGER.debug("init_rsa_cipher error...")
+            _LOGGER.debug(f"{traceback.print_exc()}")
+            result = False
+        rsa_gen = result
         if not rsa_gen:
             return ERROR_VALUE
 
         # Generate session key
-        session_gen = self.generate_session_key()
+        try:
+            aes_key = binascii.hexlify(self._key).decode("utf-8")
+            iv = binascii.hexlify(self._iv).decode("utf-8")
+            sess = f"{aes_key}:{iv}"
+            sess = self._rsa_cipher.encrypt(bytes(sess, "utf-8"))
+            self._session_key = b64encode(sess).decode("utf-8")
+            _LOGGER.debug("generate_session_key successfully...")
+            result1 = True
+        except KeyError:
+            _LOGGER.debug("error generate_session_key...")
+            result1 = False
+        session_gen = result1
         if not session_gen:
             return ERROR_VALUE
 
@@ -396,16 +405,16 @@ class LoxWs:
         if (
             self._token is None
             or self._token.token == ""
-            or self._token.get_seconds_to_expire() < 300
+            or self._token.seconds_to_expire() < 300
         ):
             res = await self.acquire_token()
         else:
             res = await self.use_token()
             # Delete old token
             if res is ERROR_VALUE:
-                self.delete_token()
+                self._token.delete()
                 _LOGGER.debug(
-                    "Old Token found and deleted. Please restart Homeassistant to aquire new token."
+                    "Old Token found and deleted. Please restart Homeassistant to acquire new token."
                 )
                 return ERROR_VALUE
 
@@ -428,11 +437,6 @@ class LoxWs:
         self.state = "CONNECTED"
         return True
 
-    async def get_visual_hash(self):
-        command = f"{CMD_GET_VISUAL_PASSWD}{self._username}"
-        enc_command = self.encrypt(command)
-        await self._ws.send(enc_command)
-
     async def ws_listen(self):
         """Listen to all commands from the Miniserver."""
         try:
@@ -443,7 +447,7 @@ class LoxWs:
         except:
             await asyncio.sleep(5)
             if self._ws.closed and self._ws.close_code in [4004, 4005]:
-                self.delete_token()
+                self._token.delete()
 
             elif self._ws.closed and self._ws.close_code:
                 await self.reconnect()
@@ -483,7 +487,7 @@ class LoxWs:
                             and "salt" in resp_json["LL"]["value"]
                         ):
                             key_and_salt = LxJsonKeySalt()
-                            key_and_salt.read_user_salt_responce(parsed_data)
+                            key_and_salt.read_user_salt_response(parsed_data)
                             key_and_salt.time_elapsed_in_seconds = (
                                 time_elapsed_in_seconds()
                             )
@@ -572,7 +576,7 @@ class LoxWs:
         token_hash = await self.hash_token()
         if token_hash is ERROR_VALUE:
             return ERROR_VALUE
-        command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._username}"
+        command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._user}"
         enc_command = self.encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
@@ -583,9 +587,7 @@ class LoxWs:
             if "code" in resp_json["LL"]:
                 if resp_json["LL"]["code"] == "200":
                     if "value" in resp_json["LL"]:
-                        self._token.set_vaild_until(
-                            resp_json["LL"]["value"]["validUntil"]
-                        )
+                        self._token.valid_until = resp_json["LL"]["value"]["validUntil"]
                     return True
         return ERROR_VALUE
 
@@ -628,8 +630,8 @@ class LoxWs:
             return ERROR_VALUE
 
     async def acquire_token(self):
-        _LOGGER.debug("acquire_tokend")
-        command = f"{CMD_GET_KEY_AND_SALT}{self._username}"
+        _LOGGER.debug("acquire_token")
+        command = f"{CMD_GET_KEY_AND_SALT}{self._user}"
         enc_command = self.encrypt(command)
 
         if not self._encryption_ready or self._ws is None:
@@ -642,7 +644,7 @@ class LoxWs:
         message = await self._ws.recv()
 
         key_and_salt = LxJsonKeySalt()
-        key_and_salt.read_user_salt_responce(message)
+        key_and_salt.read_user_salt_response(message)
 
         new_hash = self.hash_credentials(key_and_salt)
 
@@ -650,7 +652,7 @@ class LoxWs:
             command = (
                 "{}{}/{}/{}/edfc5f9a-df3f-4cad-9dddcdc42c732be2"
                 "/pyloxone_api".format(
-                    CMD_REQUEST_TOKEN, new_hash, self._username, TOKEN_PERMISSION
+                    CMD_REQUEST_TOKEN, new_hash, self._user, TOKEN_PERMISSION
                 )
             )
         else:
@@ -659,7 +661,7 @@ class LoxWs:
                 "/pyloxone_api".format(
                     CMD_REQUEST_TOKEN_JSON_WEB,
                     new_hash,
-                    self._username,
+                    self._user,
                     TOKEN_PERMISSION,
                 )
             )
@@ -677,89 +679,34 @@ class LoxWs:
                     "token" in resp_json["LL"]["value"]
                     and "validUntil" in resp_json["LL"]["value"]
                 ):
-                    self._token = LxToken(
-                        resp_json["LL"]["value"]["token"],
-                        resp_json["LL"]["value"]["validUntil"],
-                        key_and_salt.hash_alg,
-                    )
+                    self._token.token = resp_json["LL"]["value"]["token"]
+                    self._token.valid_until = resp_json["LL"]["value"]["validUntil"]
+                    self._token.hash_alg = key_and_salt.hash_alg
 
-        if self.save_token() == ERROR_VALUE:
+        if self._token.save() == ERROR_VALUE:
             return ERROR_VALUE
         return True
-
-    def load_token(self):
-        try:
-            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
-            try:
-                with open(persist_token) as f:
-                    try:
-                        dict_token = json.load(f)
-                    except ValueError:
-                        return ERROR_VALUE
-            except FileNotFoundError:
-                with open(self._token_persist_filename) as f:
-                    try:
-                        dict_token = json.load(f)
-                    except ValueError:
-                        return ERROR_VALUE
-            self._token.set_token(dict_token["_token"])
-            self._token.set_vaild_until(dict_token["_valid_until"])
-            self._token.set_hash_alg(dict_token["_hash_alg"])
-
-            _LOGGER.debug("load_token successfully...")
-            return True
-        except OSError:
-            _LOGGER.debug("error load_token...")
-            return ERROR_VALUE
-
-    def delete_token(self):
-        try:
-            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
-            try:
-                os.remove(persist_token)
-            except FileNotFoundError:
-                os.remove(self._token_persist_filename)
-
-        except OSError:
-            _LOGGER.debug("error deleting token...")
-            return ERROR_VALUE
-
-    def save_token(self):
-        try:
-            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
-
-            dict_token = {
-                "_token": self._token.token,
-                "_valid_until": self._token.vaild_until,
-                "_hash_alg": self._token.hash_alg,
-            }
-            try:
-                with open(persist_token, "w") as write_file:
-                    json.dump(dict_token, write_file)
-            except FileNotFoundError:
-                with open(self._token_persist_filename, "w") as write_file:
-                    json.dump(dict_token, write_file)
-
-            _LOGGER.debug("save_token successfully...")
-            return True
-        except OSError:
-            _LOGGER.debug("error save_token...")
-            _LOGGER.debug(f"tokenpath: {persist_token}")
-            return ERROR_VALUE
 
     def encrypt(self, command):
         if not self._encryption_ready:
             return command
         if self._salt != "" and self.new_salt_needed():
             prev_salt = self._salt
-            self._salt = self.genarate_salt()
+            self._salt = self.generate_salt()
             s = f"nextSalt/{prev_salt}/{self._salt}/{command}\x00"
         else:
             if self._salt == "":
-                self._salt = self.genarate_salt()
+                self._salt = self.generate_salt()
             s = f"salt/{self._salt}/{command}\x00"
         s = Padding.pad(bytes(s, "utf-8"), 16)
-        aes_cipher = self.get_new_aes_chiper()
+        try:
+            _new_aes = AES.new(self._key, AES.MODE_CBC, self._iv)
+            _LOGGER.debug("get_new_aes_cipher successfully...")
+            result = _new_aes
+        except ValueError:
+            _LOGGER.debug("error get_new_aes_cipher...")
+            result = None
+        aes_cipher = result
         encrypted = aes_cipher.encrypt(s)
         encoded = b64encode(encrypted)
         encoded_url = req.pathname2url(encoded.decode("utf-8"))
@@ -767,7 +714,7 @@ class LoxWs:
 
     def hash_credentials(self, key_salt):
         try:
-            pwd_hash_str = f"{self._pasword}:{key_salt.salt}"
+            pwd_hash_str = f"{self._password}:{key_salt.salt}"
             if key_salt.hash_alg == "SHA1":
                 m = hashlib.sha1()
             elif key_salt.hash_alg == "SHA256":
@@ -780,7 +727,7 @@ class LoxWs:
 
             m.update(pwd_hash_str.encode("utf-8"))
             pwd_hash = m.hexdigest().upper()
-            pwd_hash = f"{self._username}:{pwd_hash}"
+            pwd_hash = f"{self._user}:{pwd_hash}"
 
             if key_salt.hash_alg == "SHA1":
                 digester = HMAC.new(
@@ -796,7 +743,7 @@ class LoxWs:
             _LOGGER.debug("error hash_credentials...")
             return None
 
-    def genarate_salt(self):
+    def generate_salt(self):
         salt = get_random_bytes(SALT_BYTES)
         salt = binascii.hexlify(salt).decode("utf-8")
         salt = req.pathname2url(salt)
@@ -824,51 +771,13 @@ class LoxWs:
             except ValueError:
                 _LOGGER.debug("error parse_loxone_message...")
 
-    def generate_session_key(self):
-        try:
-            aes_key = binascii.hexlify(self._key).decode("utf-8")
-            iv = binascii.hexlify(self._iv).decode("utf-8")
-            sess = f"{aes_key}:{iv}"
-            sess = self._rsa_cipher.encrypt(bytes(sess, "utf-8"))
-            self._session_key = b64encode(sess).decode("utf-8")
-            _LOGGER.debug("generate_session_key successfully...")
-            return True
-        except KeyError:
-            _LOGGER.debug("error generate_session_key...")
-            return False
-
-    def get_new_aes_chiper(self):
-        try:
-            _new_aes = AES.new(self._key, AES.MODE_CBC, self._iv)
-            _LOGGER.debug("get_new_aes_chiper successfully...")
-            return _new_aes
-        except ValueError:
-            _LOGGER.debug("error get_new_aes_chiper...")
-            return None
-
-    def init_rsa_cipher(self):
-        try:
-            self._public_key = self._public_key.replace(
-                "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
-            )
-            public_key = self._public_key.replace(
-                "-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n"
-            )
-            self._rsa_cipher = PKCS1_v1_5.new(RSA.importKey(public_key))
-            _LOGGER.debug("init_rsa_cipher successfully...")
-            return True
-        except KeyError:
-            _LOGGER.debug("init_rsa_cipher error...")
-            _LOGGER.debug(f"{traceback.print_exc()}")
-            return False
-
     async def get_public_key(self):
         command = f"{self._loxone_url}/{CMD_GET_PUBLIC_KEY}"
         _LOGGER.debug(f"try to get public key: {command}")
 
         try:
             async with httpx.AsyncClient(
-                auth=(self._username, self._pasword), timeout=TIMEOUT
+                auth=(self._user, self._password), timeout=TIMEOUT
             ) as client:
                 response = await client.get(command)
         except:
@@ -890,19 +799,6 @@ class LoxWs:
             return False
         return True
 
-    def get_token_from_file(self):
-        _LOGGER.debug("try to get_token_from_file")
-        try:
-            persist_token = os.path.join(self.config_dir, self._token_persist_filename)
-            if os.path.exists(persist_token):
-                if self.load_token():
-                    _LOGGER.debug(
-                        f"token successfully loaded from file: {persist_token}"
-                    )
-        except FileExistsError:
-            _LOGGER.debug(f"error loading token {persist_token}")
-            _LOGGER.debug(f"{traceback.print_exc()}")
-
 
 # Loxone Stuff
 
@@ -919,46 +815,9 @@ class LxJsonKeySalt:
         self.time_elapsed_in_seconds = None
         self.hash_alg = None
 
-    def read_user_salt_responce(self, reponse):
-        js = json.loads(reponse, strict=False)
+    def read_user_salt_response(self, response):
+        js = json.loads(response, strict=False)
         value = js["LL"]["value"]
         self.key = value["key"]
         self.salt = value["salt"]
         self.hash_alg = value.get("hashAlg", "SHA1")
-
-
-class LxToken:
-    def __init__(self, token="", vaild_until="", hash_alg="SHA1"):
-        self._token = token
-        self._vaild_until = vaild_until
-        self._hash_alg = hash_alg
-
-    def get_seconds_to_expire(self):
-        dt = datetime.strptime("1.1.2009", "%d.%m.%Y")
-        try:
-            start_date = int(dt.strftime("%s"))
-        except:
-            start_date = int(dt.timestamp())
-        start_date = int(start_date) + self._vaild_until
-        return start_date - int(round(time.time()))
-
-    @property
-    def token(self):
-        return self._token
-
-    @property
-    def vaild_until(self):
-        return self._vaild_until
-
-    def set_vaild_until(self, value):
-        self._vaild_until = value
-
-    def set_token(self, token):
-        self._token = token
-
-    @property
-    def hash_alg(self):
-        return self._hash_alg
-
-    def set_hash_alg(self, hash_alg):
-        self._hash_alg = hash_alg

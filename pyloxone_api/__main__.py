@@ -21,8 +21,8 @@ _LOGGER.addHandler(logging.StreamHandler())
 async def main():
     try:
         app = LoxApp()
-        app.lox_user = sys.argv[1]
-        app.lox_pass = sys.argv[2]
+        app.user = sys.argv[1]
+        app.password = sys.argv[2]
         app.host = sys.argv[3]
         app.port = sys.argv[4]
         request_code = await app.getJson()
@@ -30,8 +30,8 @@ async def main():
         if request_code == 200 or request_code == "200":
 
             api = LoxWs(
-                user=app.lox_user,
-                password=app.lox_pass,
+                user=app.user,
+                password=app.password,
                 host=app.host,
                 port=app.port,
                 loxconfig=app.json,

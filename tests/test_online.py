@@ -16,8 +16,8 @@ pytestmark = pytest.mark.online
 @pytest.mark.asyncio
 async def test_online(online_credentials):
     app = LoxApp()
-    app.lox_user = online_credentials["username"]
-    app.lox_pass = online_credentials["password"]
+    app.user = online_credentials["username"]
+    app.password = online_credentials["password"]
     app.host = online_credentials["host"]
     app.port = online_credentials["port"]
     request_code = await app.getJson()

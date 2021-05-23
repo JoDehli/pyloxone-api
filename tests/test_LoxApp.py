@@ -48,8 +48,8 @@ LOXAPP3 = """{
 def dummy_miniserver():
     """A dummy LoxApp() with fake credentials"""
     app = LoxApp()
-    app.lox_pass = ""
-    app.lox_user = ""
+    app.password = ""
+    app.user = ""
     app.host = "example.com"
     app.port = 80
     return app
@@ -60,11 +60,9 @@ def test_LoxApp_init():
     app = LoxApp()
     assert app.host is None
     assert app.port is None
-    assert app.loxapppath == LOXAPPPATH
-    assert app.lox_user is None
-    assert app.lox_pass is None
+    assert app.user is None
+    assert app.password is None
     assert app.json is None
-    assert app.responsecode is None
     assert app.version is None
     assert app.https_status is None
     assert app.url == ""
@@ -107,5 +105,4 @@ async def test_LoxApp_getversion(httpx_mock, dummy_miniserver):
     assert dummy_miniserver.version == [12, 0, 2, 24]
     assert dummy_miniserver.https_status == 1
     assert dummy_miniserver.json["lastModified"] == "2021-05-11 23:09:38"
-    assert dummy_miniserver.responsecode == 200
     assert dummy_miniserver.url == "http://example.com"
