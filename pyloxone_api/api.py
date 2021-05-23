@@ -179,7 +179,6 @@ class LoxWs:
         self._keep_alive_task = None
 
         self.message_call_back = None
-        self._pending = []
 
         self.connect_retries = 20
         self.connect_delay = 10
@@ -257,26 +256,20 @@ class LoxWs:
         keep_alive_task = asyncio.ensure_future(self.keep_alive(KEEP_ALIVE_PERIOD))
         refresh_token_task = asyncio.ensure_future(self.refresh_token())
 
-        self._pending.append(consumer_task)
-        self._pending.append(keep_alive_task)
-        self._pending.append(refresh_token_task)
-
         _, pending = await asyncio.wait(
             [consumer_task, keep_alive_task, refresh_token_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
-
+        # The first task has completed. Cancel the others
         for task in pending:
             task.cancel()
+        # Wait until they have cancelled properly
+        await asyncio.wait(pending)
 
         if self.state != "STOPPING" and self.state != "CONNECTED":
             await self.reconnect()
 
     async def reconnect(self):
-        # for task in self._pending:
-        #     task.cancel()
-        #
-        self._pending = []
         for i in range(self.connect_retries):
             _LOGGER.debug(f"reconnect: {i + 1} from {self.connect_retries}")
             await self.stop()
