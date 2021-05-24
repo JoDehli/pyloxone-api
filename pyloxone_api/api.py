@@ -311,7 +311,9 @@ class LoxWs:
         elif self._visual_hash.hash_alg == "SHA256":
             m = hashlib.sha256()
         else:
-            _LOGGER.error("Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg))
+            _LOGGER.error(
+                "Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg)
+            )
             return -1
 
         m.update(pwd_hash_str.encode("utf-8"))
@@ -620,7 +622,11 @@ class LoxWs:
                                 SHA256,
                             )
                         else:
-                            _LOGGER.error("Unrecognised hash algorithm: {}".format(self._token.hash_alg))
+                            _LOGGER.error(
+                                "Unrecognised hash algorithm: {}".format(
+                                    self._token.hash_alg
+                                )
+                            )
                             return ERROR_VALUE
 
                         return digester.hexdigest()
@@ -774,7 +780,9 @@ class LoxWs:
             elif key_salt.hash_alg == "SHA256":
                 m = hashlib.sha256()
             else:
-                _LOGGER.error("Unrecognised hash algorithm: {}".format(key_salt.hash_alg))
+                _LOGGER.error(
+                    "Unrecognised hash algorithm: {}".format(key_salt.hash_alg)
+                )
                 return None
 
             m.update(pwd_hash_str.encode("utf-8"))
