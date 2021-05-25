@@ -6,7 +6,6 @@ https://github.com/JoDehli/pyloxone-api
 """
 # Loxone constants
 
-LOXONE_DEFAULT_PORT = 8080
 
 TIMEOUT = 10
 KEEP_ALIVE_PERIOD = 240
@@ -42,9 +41,4 @@ CMD_GET_VISUAL_PASSWD = "jdev/sys/getvisusalt/"
 
 DEFAULT_TOKEN_PERSIST_NAME = "lox_token.cfg"
 ERROR_VALUE = -1
-DEFAULT_PORT = 8080
-DEFAULT_DELAY_SCENE = 3
-DEFAULT_IP = ""
-
-EVENT = "loxone_event"
 LOX_CONFIG = "loxconfig"
