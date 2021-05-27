@@ -88,15 +88,15 @@ class LoxAPI:
         self._visual_hash = None
 
         self.message_call_back = None
-        self.url = None
+        self._url = None
         self.connect_retries = 20
         self.connect_delay = 10
-        self.state = "CLOSED"
+        self._state = "CLOSED"
         self._secured_queue = queue.Queue(maxsize=1)
         self.config_dir = "."
         self.json = None
         self.version = None
-        self.https_status = None
+        self._https_status = None
         self._token = LxToken(
             token_dir=self.config_dir,
             token_filename=self._token_persist_filename,
@@ -128,11 +128,11 @@ class LoxAPI:
                         pass
                 if isinstance(_, dict):
                     if "httpsStatus" in _:
-                        self.https_status = _["httpsStatus"]
+                        self._https_status = _["httpsStatus"]
 
-        self.url = api_resp.url.copy_with(path="")
+        self._url = api_resp.url.copy_with(path="")
 
-        url_version = f"{self.url}/jdev/cfg/version"
+        url_version = f"{self._url}/jdev/cfg/version"
         async with httpx.AsyncClient(
             auth=(self._user, self._password), verify=False, timeout=TIMEOUT
         ) as client:
@@ -146,7 +146,7 @@ class LoxAPI:
         async with httpx.AsyncClient(
             auth=(self._user, self._password), verify=False, timeout=TIMEOUT
         ) as client:
-            my_response = await client.get(f"{self.url}{LOXAPPPATH}")
+            my_response = await client.get(f"{self._url}{LOXAPPPATH}")
         status = my_response.status_code
         if status == 200:
             self.json = my_response.json()
@@ -166,12 +166,12 @@ class LoxAPI:
 
         return status
 
-    async def refresh_token(self):
+    async def _refresh_token(self):
         while True:
             seconds_to_refresh = self._token.seconds_to_expire()
             await asyncio.sleep(seconds_to_refresh)
             command = f"{CMD_GET_KEY}"
-            enc_command = self.encrypt(command)
+            enc_command = self._encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
             resp_json = json.loads(message)
@@ -200,7 +200,7 @@ class LoxAPI:
                 else:
                     command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
 
-                enc_command = self.encrypt(command)
+                enc_command = self._encrypt(command)
                 await self._ws.send(enc_command)
                 message = await self._ws.recv()
                 resp_json = json.loads(message)
@@ -219,9 +219,9 @@ class LoxAPI:
                 self._token.save()
 
     async def start(self):
-        consumer_task = self.ws_listen()
-        keep_alive_task = self.keep_alive(KEEP_ALIVE_PERIOD)
-        refresh_token_task = self.refresh_token()
+        consumer_task = self._ws_listen()
+        keep_alive_task = self._keep_alive(KEEP_ALIVE_PERIOD)
+        refresh_token_task = self._refresh_token()
 
         _, pending = await asyncio.wait(
             [consumer_task, keep_alive_task, refresh_token_task],
@@ -233,14 +233,14 @@ class LoxAPI:
         # Wait until they have cancelled properly
         await asyncio.wait(pending)
 
-        if self.state != "STOPPING" and self.state != "CONNECTED":
-            await self.reconnect()
+        if self._state != "STOPPING" and self._state != "CONNECTED":
+            await self._reconnect()
 
-    async def reconnect(self):
+    async def _reconnect(self):
         for i in range(self.connect_retries):
             _LOGGER.debug(f"reconnect: {i + 1} from {self.connect_retries}")
             await self.stop()
-            self.state = "CONNECTING"
+            self._state = "CONNECTING"
             _LOGGER.debug(f"wait for {self.connect_delay} seconds...")
             await asyncio.sleep(self.connect_delay)
             res = await self.async_init()
@@ -251,20 +251,20 @@ class LoxAPI:
     # https://github.com/aio-libs/aiohttp/issues/754
     async def stop(self):
         try:
-            self.state = "STOPPING"
+            self._state = "STOPPING"
             if not self._ws.closed:
                 await self._ws.close()
             return 1
         except:
             return -1
 
-    async def keep_alive(self, second):
+    async def _keep_alive(self, second):
         while True:
             await asyncio.sleep(second)
             if self._encryption_ready:
                 await self._ws.send("keepalive")
 
-    async def send_secured(self, device_uuid, value, code):
+    async def _send_secured(self, device_uuid, value, code):
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"
         if self._visual_hash.hash_alg == "SHA1":
             m = hashlib.sha1()
@@ -298,7 +298,7 @@ class LoxAPI:
         self._secured_queue.put((device_uuid, value, code))
         # Get visual hash
         command = f"{CMD_GET_VISUAL_PASSWD}{self._user}"
-        enc_command = self.encrypt(command)
+        enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
 
     async def send_websocket_command(self, device_uuid, value):
@@ -318,7 +318,7 @@ class LoxAPI:
             _LOGGER.debug("error token read")
 
         # Get public key from Loxone
-        resp = await self.get_public_key()
+        resp = await self._get_public_key()
 
         if not resp:
             return ERROR_VALUE
@@ -360,17 +360,17 @@ class LoxAPI:
 
         # Exchange keys
         try:
-            if self.url.scheme == "https":
-                new_url = self.url.copy_with(scheme="wss", path="/ws/rfc6455")
+            if self._url.scheme == "https":
+                new_url = self._url.copy_with(scheme="wss", path="/ws/rfc6455")
             else:
-                new_url = self.url.copy_with(scheme="ws", path="/ws/rfc6455")
+                new_url = self._url.copy_with(scheme="ws", path="/ws/rfc6455")
             # pylint: disable=no-member
             self._ws = await wslib.connect(str(new_url), timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
             message = await self._ws.recv()
-            self.parse_loxone_message(message)
+            self._unpack_loxone_message(message)
             if self._current_message_typ != 0:
                 _LOGGER.debug("error by getting the session key response...")
                 return ERROR_VALUE
@@ -395,9 +395,9 @@ class LoxAPI:
             or self._token.token == ""
             or self._token.seconds_to_expire() < 300
         ):
-            res = await self.acquire_token()
+            res = await self._acquire_token()
         else:
-            res = await self.use_token()
+            res = await self._use_token()
             # Delete old token
             if res is ERROR_VALUE:
                 self._token.delete()
@@ -414,7 +414,7 @@ class LoxAPI:
             return False
 
         command = f"{CMD_ENABLE_UPDATES}"
-        enc_command = self.encrypt(command)
+        enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         if self._ws.closed:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
@@ -422,10 +422,10 @@ class LoxAPI:
         _ = await self._ws.recv()
         _ = await self._ws.recv()
 
-        self.state = "CONNECTED"
+        self._state = "CONNECTED"
         return True
 
-    async def ws_listen(self):
+    async def _ws_listen(self):
         """Listen to all commands from the Miniserver."""
         try:
             while True:
@@ -438,7 +438,7 @@ class LoxAPI:
                 self._token.delete()
 
             elif self._ws.closed and self._ws.close_code:
-                await self.reconnect()
+                await self._reconnect()
 
     async def _async_process_message(self, message):
         """Process the messages."""
@@ -483,7 +483,7 @@ class LoxAPI:
 
                             while not self._secured_queue.empty():
                                 secured_message = self._secured_queue.get()
-                                await self.send_secured(
+                                await self._send_secured(
                                     secured_message[0],
                                     secured_message[1],
                                     secured_message[2],
@@ -560,15 +560,15 @@ class LoxAPI:
             self._current_message_typ = 7
         return event_dict
 
-    async def use_token(self):
-        token_hash = await self.hash_token()
+    async def _use_token(self):
+        token_hash = await self._hash_token()
         if token_hash is ERROR_VALUE:
             return ERROR_VALUE
         command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._user}"
-        enc_command = self.encrypt(command)
+        enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        self.parse_loxone_message(message)
+        self._unpack_loxone_message(message)
         message = await self._ws.recv()
         resp_json = json.loads(message)
         if "LL" in resp_json:
@@ -579,13 +579,13 @@ class LoxAPI:
                     return True
         return ERROR_VALUE
 
-    async def hash_token(self):
+    async def _hash_token(self):
         try:
             command = f"{CMD_GET_KEY}"
-            enc_command = self.encrypt(command)
+            enc_command = self._encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv()
-            self.parse_loxone_message(message)
+            self._unpack_loxone_message(message)
             message = await self._ws.recv()
             resp_json = json.loads(message)
             if "LL" in resp_json:
@@ -617,24 +617,24 @@ class LoxAPI:
         except:
             return ERROR_VALUE
 
-    async def acquire_token(self):
+    async def _acquire_token(self):
         _LOGGER.debug("acquire_token")
         command = f"{CMD_GET_KEY_AND_SALT}{self._user}"
-        enc_command = self.encrypt(command)
+        enc_command = self._encrypt(command)
 
         if not self._encryption_ready or self._ws is None:
             return ERROR_VALUE
 
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        self.parse_loxone_message(message)
+        self._unpack_loxone_message(message)
 
         message = await self._ws.recv()
 
         key_and_salt = LxJsonKeySalt()
         key_and_salt.read_user_salt_response(message)
 
-        new_hash = self.hash_credentials(key_and_salt)
+        new_hash = self._hash_credentials(key_and_salt)
 
         if self._version < 10.2:
             command = (
@@ -654,10 +654,10 @@ class LoxAPI:
                 )
             )
 
-        enc_command = self.encrypt(command)
+        enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv()
-        self.parse_loxone_message(message)
+        self._unpack_loxone_message(message)
         message = await self._ws.recv()
 
         resp_json = json.loads(message)
@@ -675,16 +675,16 @@ class LoxAPI:
             return ERROR_VALUE
         return True
 
-    def encrypt(self, command):
+    def _encrypt(self, command):
         if not self._encryption_ready:
             return command
-        if self._salt != "" and self.new_salt_needed():
+        if self._salt != "" and self._new_salt_needed():
             prev_salt = self._salt
-            self._salt = self.generate_salt()
+            self._salt = self._generate_salt()
             s = f"nextSalt/{prev_salt}/{self._salt}/{command}\x00"
         else:
             if self._salt == "":
-                self._salt = self.generate_salt()
+                self._salt = self._generate_salt()
             s = f"salt/{self._salt}/{command}\x00"
         s = Padding.pad(bytes(s, "utf-8"), 16)
         try:
@@ -700,7 +700,7 @@ class LoxAPI:
         encoded_url = req.pathname2url(encoded.decode("utf-8"))
         return CMD_ENCRYPT_CMD + encoded_url
 
-    def hash_credentials(self, key_salt):
+    def _hash_credentials(self, key_salt):
         try:
             pwd_hash_str = f"{self._password}:{key_salt.salt}"
             if key_salt.hash_alg == "SHA1":
@@ -731,7 +731,7 @@ class LoxAPI:
             _LOGGER.debug("error hash_credentials...")
             return None
 
-    def generate_salt(self):
+    def _generate_salt(self):
         salt = get_random_bytes(SALT_BYTES)
         salt = binascii.hexlify(salt).decode("utf-8")
         salt = req.pathname2url(salt)
@@ -739,7 +739,7 @@ class LoxAPI:
         self._salt_used_count = 0
         return salt
 
-    def new_salt_needed(self):
+    def _new_salt_needed(self):
         self._salt_used_count += 1
         if (
             self._salt_used_count > SALT_MAX_USE_COUNT
@@ -748,19 +748,19 @@ class LoxAPI:
             return True
         return False
 
-    def parse_loxone_message(self, message):
+    def _unpack_loxone_message(self, message):
         if len(message) == 8:
             try:
                 unpacked_data = unpack("ccccI", message)
                 self._current_message_typ = int.from_bytes(
                     unpacked_data[1], byteorder="big"
                 )
-                _LOGGER.debug("parse_loxone_message successfully...")
+                _LOGGER.debug("unpack_message successfully...")
             except ValueError:
-                _LOGGER.debug("error parse_loxone_message...")
+                _LOGGER.debug("error unpack_message...")
 
-    async def get_public_key(self):
-        command = f"{self.url}/{CMD_GET_PUBLIC_KEY}"
+    async def _get_public_key(self):
+        command = f"{self._url}/{CMD_GET_PUBLIC_KEY}"
         _LOGGER.debug(f"try to get public key: {command}")
 
         try:

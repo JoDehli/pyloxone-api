@@ -61,8 +61,8 @@ def test_LoxApp_init():
     assert api._password is None
     assert api.json is None
     assert api.version is None
-    assert api.https_status is None
-    assert api.url == None
+    assert api._https_status is None
+    assert api._url is None
 
 
 @pytest.mark.asyncio
@@ -84,7 +84,7 @@ async def test_LoxApp_getversion_http_status_0(httpx_mock, dummy_miniserver):
     )
     httpx_mock.add_response(url=f"http://example.com{LOXAPPPATH}", data=LOXAPP3)
     _ = await dummy_miniserver.getJson()
-    assert dummy_miniserver.https_status == 0
+    assert dummy_miniserver._https_status == 0
 
 
 @pytest.mark.asyncio
@@ -100,6 +100,6 @@ async def test_LoxApp_getversion(httpx_mock, dummy_miniserver):
 
     _ = await dummy_miniserver.getJson()
     assert dummy_miniserver.version == [12, 0, 2, 24]
-    assert dummy_miniserver.https_status == 1
+    assert dummy_miniserver._https_status == 1
     assert dummy_miniserver.json["lastModified"] == "2021-05-11 23:09:38"
-    assert dummy_miniserver.url == "http://example.com"
+    assert dummy_miniserver._url == "http://example.com"
