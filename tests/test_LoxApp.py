@@ -1,5 +1,5 @@
 import pytest
-from pyloxone_api import LoxApp
+from pyloxone_api import LoxAPI
 from pyloxone_api.const import LOXAPPPATH
 
 API_KEY_RETURN_HTTPS_STATUS_1 = """{
@@ -47,25 +47,22 @@ LOXAPP3 = """{
 @pytest.fixture
 def dummy_miniserver():
     """A dummy LoxApp() with fake credentials"""
-    app = LoxApp()
-    app.password = ""
-    app.user = ""
-    app.host = "example.com"
-    app.port = 80
-    return app
+    api = LoxAPI(user="", password="", host="example.com", port=80)
+
+    return api
 
 
 def test_LoxApp_init():
     """Test class initialisation"""
-    app = LoxApp()
-    assert app.host is None
-    assert app.port is None
-    assert app.user is None
-    assert app.password is None
-    assert app.json is None
-    assert app.version is None
-    assert app.https_status is None
-    assert app.url == ""
+    api = LoxAPI()
+    assert api._host is None
+    assert api._port is None
+    assert api._user is None
+    assert api._password is None
+    assert api.json is None
+    assert api.version is None
+    assert api.https_status is None
+    assert api.url == None
 
 
 @pytest.mark.asyncio

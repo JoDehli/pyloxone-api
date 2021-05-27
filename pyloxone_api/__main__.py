@@ -8,7 +8,7 @@ From the command line, run:
 where username, password host and port are your Loxone login credentials
 
 """
-from pyloxone_api import LoxApp, LoxWs
+from pyloxone_api import LoxAPI
 import asyncio
 import logging
 import sys
@@ -20,23 +20,13 @@ _LOGGER.addHandler(logging.StreamHandler())
 
 async def main():
     try:
-        app = LoxApp()
-        app.user = sys.argv[1]
-        app.password = sys.argv[2]
-        app.host = sys.argv[3]
-        app.port = sys.argv[4]
-        request_code = await app.getJson()
+        api = LoxAPI(
+            user=sys.argv[1], password=sys.argv[2], host=sys.argv[3], port=sys.argv[4]
+        )
+
+        request_code = await api.getJson()
 
         if request_code == 200 or request_code == "200":
-
-            api = LoxWs(
-                user=app.user,
-                password=app.password,
-                host=app.host,
-                port=app.port,
-                loxconfig=app.json,
-                loxone_url=app.url,
-            )
 
             res = await api.async_init()
             if not res or res == -1:

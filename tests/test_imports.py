@@ -1,2 +1,2 @@
 def test_import():
-    from pyloxone_api import LoxApp, LoxWs
+    from pyloxone_api import LoxAPI  # noqa

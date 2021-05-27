@@ -59,24 +59,56 @@ _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
 
 
-class LoxApp:
-    def __init__(self, host=None, port=None, user=None, password=None):
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
+class LoxAPI:
+    def __init__(
+        self,
+        host=None,
+        port=None,
+        user=None,
+        password=None,
+        token_persist_filename=DEFAULT_TOKEN_PERSIST_NAME,
+    ):
+        self._host = host
+        self._port = port
+        self._user = user
+        self._password = password
+        self._token_persist_filename = token_persist_filename
+
+        self._iv = get_random_bytes(IV_BYTES)
+        self._key = get_random_bytes(AES_KEY_SIZE)
+        self._salt = ""
+        self._salt_used_count = 0
+        self._salt_time_stamp = 0
+        self._public_key = None
+        self._rsa_cipher = None
+        self._session_key = None
+        self._ws = None
+        self._current_message_typ = None
+        self._encryption_ready = False
+        self._visual_hash = None
+
+        self.message_call_back = None
+        self.url = None
+        self.connect_retries = 20
+        self.connect_delay = 10
+        self.state = "CLOSED"
+        self._secured_queue = queue.Queue(maxsize=1)
+        self.config_dir = "."
         self.json = None
         self.version = None
         self.https_status = None
-        self.url = ""
+        self._token = LxToken(
+            token_dir=self.config_dir,
+            token_filename=self._token_persist_filename,
+        )
 
     async def getJson(self):
-        if self.port == 80:
-            url_api = f"http://{self.host}/jdev/cfg/apiKey"
+        if self._port == 80:
+            url_api = f"http://{self._host}/jdev/cfg/apiKey"
         else:
-            url_api = f"http://{self.host}:{self.port}/jdev/cfg/apiKey"
+            url_api = f"http://{self._host}:{self._port}/jdev/cfg/apiKey"
         async with httpx.AsyncClient(
-            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
+            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
         ) as client:
             api_resp = await client.get(url_api)
         if api_resp.status_code != 200:
@@ -102,7 +134,7 @@ class LoxApp:
 
         url_version = f"{self.url}/jdev/cfg/version"
         async with httpx.AsyncClient(
-            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
+            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
         ) as client:
             version_resp = await client.get(url_version)
         if version_resp.status_code == 200:
@@ -112,7 +144,7 @@ class LoxApp:
                     self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
 
         async with httpx.AsyncClient(
-            auth=(self.user, self.password), verify=False, timeout=TIMEOUT
+            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
         ) as client:
             my_response = await client.get(f"{self.url}{LOXAPPPATH}")
         status = my_response.status_code
@@ -122,61 +154,17 @@ class LoxApp:
                 self.json["softwareVersion"] = self.version
         else:
             self.json = None
-        return status
 
-
-class LoxWs:
-    def __init__(
-        self,
-        host=None,
-        port=None,
-        user=None,
-        password=None,
-        token_persist_filename=DEFAULT_TOKEN_PERSIST_NAME,
-        loxconfig=None,
-        loxone_url=None,
-    ):
-        self._host = host
-        self._port = port
-        self._user = user
-        self._password = password
-        self._loxone_url = loxone_url
-        self._token_persist_filename = token_persist_filename
-        self._loxconfig = loxconfig
-        if self._loxconfig is not None:
-            if "softwareVersion" in self._loxconfig:
-                vers = self._loxconfig["softwareVersion"]
+        if self.json is not None:
+            if "softwareVersion" in self.json:
+                vers = self.json["softwareVersion"]
                 if isinstance(vers, list) and len(vers) >= 2:
                     try:
                         self._version = float(f"{vers[0]}.{vers[1]}")
                     except ValueError:
                         self._version = 0
-        self._loxconfig = loxconfig
-        self._iv = get_random_bytes(IV_BYTES)
-        self._key = get_random_bytes(AES_KEY_SIZE)
-        self._salt = ""
-        self._salt_used_count = 0
-        self._salt_time_stamp = 0
-        self._public_key = None
-        self._rsa_cipher = None
-        self._session_key = None
-        self._ws = None
-        self._current_message_typ = None
-        self._encryption_ready = False
-        self._visual_hash = None
 
-        self.message_call_back = None
-
-        self.connect_retries = 20
-        self.connect_delay = 10
-        self.state = "CLOSED"
-        self._secured_queue = queue.Queue(maxsize=1)
-        self.config_dir = "."
-
-        self._token = LxToken(
-            token_dir=self.config_dir,
-            token_filename=self._token_persist_filename,
-        )
+        return status
 
     async def refresh_token(self):
         while True:
@@ -372,10 +360,10 @@ class LoxWs:
 
         # Exchange keys
         try:
-            if self._loxone_url.scheme == "https":
-                new_url = self._loxone_url.copy_with(scheme="wss", path="/ws/rfc6455")
+            if self.url.scheme == "https":
+                new_url = self.url.copy_with(scheme="wss", path="/ws/rfc6455")
             else:
-                new_url = self._loxone_url.copy_with(scheme="ws", path="/ws/rfc6455")
+                new_url = self.url.copy_with(scheme="ws", path="/ws/rfc6455")
             # pylint: disable=no-member
             self._ws = await wslib.connect(str(new_url), timeout=TIMEOUT)
 
@@ -772,7 +760,7 @@ class LoxWs:
                 _LOGGER.debug("error parse_loxone_message...")
 
     async def get_public_key(self):
-        command = f"{self._loxone_url}/{CMD_GET_PUBLIC_KEY}"
+        command = f"{self.url}/{CMD_GET_PUBLIC_KEY}"
         _LOGGER.debug(f"try to get public key: {command}")
 
         try:
