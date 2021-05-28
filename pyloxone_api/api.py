@@ -103,67 +103,64 @@ class LoxAPI:
         )
 
     async def getJson(self):
-        if self._port == 80:
-            url_api = f"http://{self._host}/jdev/cfg/apiKey"
-        else:
-            url_api = f"http://{self._host}:{self._port}/jdev/cfg/apiKey"
-        async with httpx.AsyncClient(
-            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
-        ) as client:
-            api_resp = await client.get(url_api)
-        if api_resp.status_code != 200:
-            _LOGGER.error(
-                f"Could not connect to Loxone! Status code {api_resp.status_code}."
-            )
-            return False
+        client = httpx.AsyncClient(
+            auth=(self._user, self._password),
+            base_url=f"http://{self._host}:{self._port}",
+            verify=False,
+            timeout=TIMEOUT,
+        )
+        try:
 
-        req_data = api_resp.json()
-        if "LL" in req_data:
-            if "Code" in req_data["LL"] and "value" in req_data["LL"]:
-                _ = req_data["LL"]["value"]
-                if isinstance(_, str):
-                    try:
-                        _ = eval(_)
-                    except ValueError:
-                        pass
-                if isinstance(_, dict):
-                    if "httpsStatus" in _:
-                        self._https_status = _["httpsStatus"]
+            api_resp = await client.get("/jdev/cfg/apiKey")
+            if api_resp.status_code != 200:
+                _LOGGER.error(
+                    f"Could not connect to Loxone! Status code {api_resp.status_code}."
+                )
+                await client.aclose()
+                return False
 
-        self._url = api_resp.url.copy_with(path="")
+            req_data = api_resp.json()
+            if "LL" in req_data:
+                if "Code" in req_data["LL"] and "value" in req_data["LL"]:
+                    _ = req_data["LL"]["value"]
+                    if isinstance(_, str):
+                        try:
+                            _ = eval(_)
+                        except ValueError:
+                            pass
+                    if isinstance(_, dict):
+                        if "httpsStatus" in _:
+                            self._https_status = _["httpsStatus"]
 
-        url_version = f"{self._url}/jdev/cfg/version"
-        async with httpx.AsyncClient(
-            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
-        ) as client:
-            version_resp = await client.get(url_version)
-        if version_resp.status_code == 200:
-            vjson = version_resp.json()
-            if "LL" in vjson:
-                if "Code" in vjson["LL"] and "value" in vjson["LL"]:
-                    self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
+            self._url = api_resp.url.copy_with(path="")
 
-        async with httpx.AsyncClient(
-            auth=(self._user, self._password), verify=False, timeout=TIMEOUT
-        ) as client:
+            version_resp = await client.get("/jdev/cfg/version")
+            if version_resp.status_code == 200:
+                vjson = version_resp.json()
+                if "LL" in vjson:
+                    if "Code" in vjson["LL"] and "value" in vjson["LL"]:
+                        self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
+
             my_response = await client.get(f"{self._url}{LOXAPPPATH}")
-        status = my_response.status_code
-        if status == 200:
-            self.json = my_response.json()
-            if self.version is not None:
-                self.json["softwareVersion"] = self.version
-        else:
-            self.json = None
+            status = my_response.status_code
+            if status == 200:
+                self.json = my_response.json()
+                if self.version is not None:
+                    self.json["softwareVersion"] = self.version
+            else:
+                self.json = None
 
-        if self.json is not None:
-            if "softwareVersion" in self.json:
-                vers = self.json["softwareVersion"]
-                if isinstance(vers, list) and len(vers) >= 2:
-                    try:
-                        self._version = float(f"{vers[0]}.{vers[1]}")
-                    except ValueError:
-                        self._version = 0
+            if self.json is not None:
+                if "softwareVersion" in self.json:
+                    vers = self.json["softwareVersion"]
+                    if isinstance(vers, list) and len(vers) >= 2:
+                        try:
+                            self._version = float(f"{vers[0]}.{vers[1]}")
+                        except ValueError:
+                            self._version = 0
 
+        finally:
+            await client.aclose()
         return status
 
     async def _refresh_token(self):
