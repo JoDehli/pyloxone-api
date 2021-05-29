@@ -1,5 +1,7 @@
 import pytest
 from pyloxone_api import LoxAPI
+import pyloxone_api
+from pyloxone_api.api import _SaltMine
 from pyloxone_api.const import LOXAPPPATH
 
 API_KEY_RETURN_HTTPS_STATUS_1 = """{
@@ -103,3 +105,22 @@ async def test_LoxApp_getversion(httpx_mock, dummy_miniserver):
     assert dummy_miniserver._https_status == 1
     assert dummy_miniserver.json["lastModified"] == "2021-05-11 23:09:38"
     assert dummy_miniserver._url == "http://example.com"
+
+
+def test_salt(monkeypatch):
+    monkeypatch.setattr(pyloxone_api.api, "SALT_MAX_USE_COUNT", 2)
+    s = _SaltMine()
+    salt1 = s.get_salt()
+    assert not salt1.is_new
+    # Check that value is a 32 character hex string
+    assert len(salt1.value) == 32
+    assert int(salt1.value, 16)
+
+    salt2 = s.get_salt()
+    assert salt2 == salt1
+    assert s._used_count == 2
+    salt3 = s.get_salt()  # Should trigger new salt generation
+    assert s._used_count == 0
+    assert salt3.is_new
+    assert salt3.value != salt2.value
+    assert salt3.previous == salt2.value

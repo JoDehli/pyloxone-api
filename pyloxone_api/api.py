@@ -15,6 +15,7 @@ import traceback
 import urllib.request as req
 import uuid
 from base64 import b64encode
+from collections import namedtuple
 from math import floor  # pylint: disable=no-name-in-module
 from struct import unpack  # pylint: disable=no-name-in-module
 
@@ -76,9 +77,7 @@ class LoxAPI:
 
         self._iv = get_random_bytes(IV_BYTES)
         self._key = get_random_bytes(AES_KEY_SIZE)
-        self._salt = ""
-        self._salt_used_count = 0
-        self._salt_time_stamp = 0
+        self._saltmine = _SaltMine()
         self._public_key = None
         self._rsa_cipher = None
         self._session_key = None
@@ -473,9 +472,6 @@ class LoxAPI:
                         ):
                             key_and_salt = LxJsonKeySalt()
                             key_and_salt.read_user_salt_response(parsed_data)
-                            key_and_salt.time_elapsed_in_seconds = (
-                                time_elapsed_in_seconds()
-                            )
                             self._visual_hash = key_and_salt
 
                             while not self._secured_queue.empty():
@@ -675,14 +671,12 @@ class LoxAPI:
     def _encrypt(self, command):
         if not self._encryption_ready:
             return command
-        if self._salt != "" and self._new_salt_needed():
-            prev_salt = self._salt
-            self._salt = self._generate_salt()
-            s = f"nextSalt/{prev_salt}/{self._salt}/{command}\x00"
+        salt = self._saltmine.get_salt()
+        if salt.is_new:
+            s = f"nextSalt/{salt.previous}/{salt.value}/{command}\x00"
         else:
-            if self._salt == "":
-                self._salt = self._generate_salt()
-            s = f"salt/{self._salt}/{command}\x00"
+            s = f"salt/{salt.value}/{command}\x00"
+
         s = Padding.pad(bytes(s, "utf-8"), 16)
         try:
             _new_aes = AES.new(self._key, AES.MODE_CBC, self._iv)
@@ -728,23 +722,6 @@ class LoxAPI:
             _LOGGER.debug("error hash_credentials...")
             return None
 
-    def _generate_salt(self):
-        salt = get_random_bytes(SALT_BYTES)
-        salt = binascii.hexlify(salt).decode("utf-8")
-        salt = req.pathname2url(salt)
-        self._salt_time_stamp = time_elapsed_in_seconds()
-        self._salt_used_count = 0
-        return salt
-
-    def _new_salt_needed(self):
-        self._salt_used_count += 1
-        if (
-            self._salt_used_count > SALT_MAX_USE_COUNT
-            or time_elapsed_in_seconds() - self._salt_time_stamp > SALT_MAX_AGE_SECONDS
-        ):
-            return True
-        return False
-
     def _unpack_loxone_message(self, message):
         if len(message) == 8:
             try:
@@ -788,16 +765,11 @@ class LoxAPI:
 # Loxone Stuff
 
 
-def time_elapsed_in_seconds():
-    return int(round(time.time()))
-
-
 class LxJsonKeySalt:
     def __init__(self):
         self.key = None
         self.salt = None
         self.response = None
-        self.time_elapsed_in_seconds = None
         self.hash_alg = None
 
     def read_user_salt_response(self, response):
@@ -806,3 +778,42 @@ class LxJsonKeySalt:
         self.key = value["key"]
         self.salt = value["salt"]
         self.hash_alg = value.get("hashAlg", "SHA1")
+
+
+Salt = namedtuple("Salt", ["value", "is_new", "previous"])
+
+
+class _SaltMine:
+    """A salt used for encrypting commands."""
+
+    def __init__(self):
+        self._salt = None
+        self._generate_new_salt()
+
+    def _generate_new_salt(self):
+        self._previous = self._salt
+        self._salt = get_random_bytes(SALT_BYTES).hex()
+        self._timestamp = time.time()
+        self._used_count = 0
+        self._is_new = True
+        _LOGGER.debug("Generating a new salt")
+
+    def get_salt(self):
+        """Get the current salt in use, or generate a new one if it has expired
+
+        Returns a namedtuple, with attibutes value (the salt as a hex string),
+        is_new (a boolean indicating whether this is the first time this
+        salt has been returned), and previous (the value of the previous salt, or None).
+        """
+
+        self._used_count += 1
+        self._is_new = False
+        if (
+            self._used_count > SALT_MAX_USE_COUNT
+            or time.time() - self._timestamp > SALT_MAX_AGE_SECONDS
+        ):
+            # the salt has expired. Get a new one.
+            self._previous = self._salt
+            self._generate_new_salt()
+
+        return Salt(self._salt, self._is_new, self._previous)
