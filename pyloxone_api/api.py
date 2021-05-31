@@ -26,6 +26,7 @@ from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 from Crypto.Util import Padding
+import ssl
 
 from .const import (
     AES_KEY_SIZE,
@@ -67,6 +68,7 @@ class LoxAPI:
         port=None,
         user=None,
         password=None,
+        use_tls=False,
         token_persist_filename=DEFAULT_TOKEN_PERSIST_NAME,
     ):
         self._host = host
@@ -74,6 +76,11 @@ class LoxAPI:
         self._user = user
         self._password = password
         self._token_persist_filename = token_persist_filename
+        self._use_tls = use_tls
+        # If use_tls is True, certificate hostnames will be checked. This means that
+        # an IP address cannot be used as a hostname. Set _tls_check_hostname to false
+        # to disable this check. This creates a SECURITY RISK.
+        self._tls_check_hostname = True
 
         self._iv = get_random_bytes(IV_BYTES)
         self._key = get_random_bytes(AES_KEY_SIZE)
@@ -87,29 +94,34 @@ class LoxAPI:
         self._visual_hash = None
 
         self.message_call_back = None
-        self._url = None
         self.connect_retries = 20
         self.connect_delay = 10
         self._state = "CLOSED"
         self._secured_queue = queue.Queue(maxsize=1)
         self.config_dir = "."
         self.json = None
-        self.version = None
-        self._https_status = None
+        self.snr = ""
+        self.version = None  # a string, eg "12.0.1.2"
+        self._version = 0  # a list of ints eg [12,0,1,2]
+        self._https_status = None  # None = no TLS, 1 = TLS available, 2 = cert expired
         self._token = LxToken(
             token_dir=self.config_dir,
             token_filename=self._token_persist_filename,
         )
 
     async def getJson(self):
+        """Obtain basic info from the miniserver"""
+        # All initial http/https requests are carried out here, for simplicity. They
+        # can all use the same httpx.AsyncClient instance
+        scheme = "https" if self._use_tls else "http"
         client = httpx.AsyncClient(
             auth=(self._user, self._password),
-            base_url=f"http://{self._host}:{self._port}",
-            verify=False,
+            base_url=f"{scheme}://{self._host}:{self._port}",
+            verify=self._tls_check_hostname,
             timeout=TIMEOUT,
         )
         try:
-
+            # Get details of https capability, version info etc
             api_resp = await client.get("/jdev/cfg/apiKey")
             if api_resp.status_code != 200:
                 _LOGGER.error(
@@ -118,45 +130,38 @@ class LoxAPI:
                 await client.aclose()
                 return False
 
-            req_data = api_resp.json()
-            if "LL" in req_data:
-                if "Code" in req_data["LL"] and "value" in req_data["LL"]:
-                    _ = req_data["LL"]["value"]
-                    if isinstance(_, str):
-                        try:
-                            _ = eval(_)
-                        except ValueError:
-                            pass
-                    if isinstance(_, dict):
-                        if "httpsStatus" in _:
-                            self._https_status = _["httpsStatus"]
+            api_data = api_resp.json()
+            value = api_data.get("LL", {}).get("value", "{}")
+            # The json returned by the miniserver is invalid. It contains " and '.
+            # We need to normalise it
+            value = json.loads(value.replace("'", '"'))
+            self._https_status = value.get("httpsStatus")
+            self.version = value.get("version")
+            self._version = (
+                [int(x) for x in self.version.split(".")] if self.version else []
+            )
+            self.snr = value.get("snr")
 
-            self._url = api_resp.url.copy_with(path="")
-
-            version_resp = await client.get("/jdev/cfg/version")
-            if version_resp.status_code == 200:
-                vjson = version_resp.json()
-                if "LL" in vjson:
-                    if "Code" in vjson["LL"] and "value" in vjson["LL"]:
-                        self.version = [int(x) for x in vjson["LL"]["value"].split(".")]
-
-            my_response = await client.get(f"{self._url}{LOXAPPPATH}")
-            status = my_response.status_code
+            # Get the structure file
+            loxappdata = await client.get(LOXAPPPATH)
+            status = loxappdata.status_code
             if status == 200:
-                self.json = my_response.json()
-                if self.version is not None:
-                    self.json["softwareVersion"] = self.version
-            else:
-                self.json = None
+                self.json = loxappdata.json()
+                self.json[
+                    "softwareVersion"
+                ] = self._version  # FIXME Legacy use only. Need to fix pyloxone
 
-            if self.json is not None:
-                if "softwareVersion" in self.json:
-                    vers = self.json["softwareVersion"]
-                    if isinstance(vers, list) and len(vers) >= 2:
-                        try:
-                            self._version = float(f"{vers[0]}.{vers[1]}")
-                        except ValueError:
-                            self._version = 0
+            # Get the public key
+            pk_data = await client.get(CMD_GET_PUBLIC_KEY)
+            pk_json = pk_data.json()
+            pk = pk_json.get("LL", {}).get("value", "")
+            # The certificate returned by Loxone is not properly PEM encoded. It needs
+            # newlines inserting. Python does not insist on 64 char line lengths
+            # however. If, for some reason, no certificate is returned, _public_key will
+            # be ""
+            self._public_key = pk.replace(
+                "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
+            ).replace("-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n")
 
         finally:
             await client.aclose()
@@ -313,21 +318,9 @@ class LoxAPI:
         except OSError:
             _LOGGER.debug("error token read")
 
-        # Get public key from Loxone
-        resp = await self._get_public_key()
-
-        if not resp:
-            return ERROR_VALUE
-
         # Init resa cipher
         try:
-            self._public_key = self._public_key.replace(
-                "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
-            )
-            public_key = self._public_key.replace(
-                "-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n"
-            )
-            self._rsa_cipher = PKCS1_v1_5.new(RSA.importKey(public_key))
+            self._rsa_cipher = PKCS1_v1_5.new(RSA.importKey(self._public_key))
             _LOGGER.debug("init_rsa_cipher successfully...")
             result = True
         except KeyError:
@@ -356,12 +349,16 @@ class LoxAPI:
 
         # Exchange keys
         try:
-            if self._url.scheme == "https":
-                new_url = self._url.copy_with(scheme="wss", path="/ws/rfc6455")
+            scheme = "wss" if self._use_tls else "ws"
+            url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
+            if self._use_tls:
+                # pylint: disable=no-member
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = self._tls_check_hostname
+                self._ws = await wslib.connect(url, timeout=TIMEOUT, ssl=ssl_context)
             else:
-                new_url = self._url.copy_with(scheme="ws", path="/ws/rfc6455")
-            # pylint: disable=no-member
-            self._ws = await wslib.connect(str(new_url), timeout=TIMEOUT)
+                # pylint: disable=no-member
+                self._ws = await wslib.connect(url, timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
 
@@ -732,34 +729,6 @@ class LoxAPI:
                 _LOGGER.debug("unpack_message successfully...")
             except ValueError:
                 _LOGGER.debug("error unpack_message...")
-
-    async def _get_public_key(self):
-        command = f"{self._url}/{CMD_GET_PUBLIC_KEY}"
-        _LOGGER.debug(f"try to get public key: {command}")
-
-        try:
-            async with httpx.AsyncClient(
-                auth=(self._user, self._password), timeout=TIMEOUT
-            ) as client:
-                response = await client.get(command)
-        except:
-            return False
-
-        if response.status_code != 200:
-            _LOGGER.debug(f"error get_public_key: {response.status_code}")
-            return False
-        try:
-            resp_json = json.loads(response.text)
-            if "LL" in resp_json and "value" in resp_json["LL"]:
-                self._public_key = resp_json["LL"]["value"]
-                _LOGGER.debug("get_public_key successfully...")
-            else:
-                _LOGGER.debug("public key load error")
-                return False
-        except ValueError:
-            _LOGGER.debug("public key load error")
-            return False
-        return True
 
 
 # Loxone Stuff
