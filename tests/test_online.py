@@ -20,6 +20,7 @@ async def test_online(online_credentials):
         password=online_credentials["password"],
         host=online_credentials["host"],
         port=online_credentials["port"],
+        use_tls=online_credentials["use_tls"],
     )
 
     request_code = await api.getJson()

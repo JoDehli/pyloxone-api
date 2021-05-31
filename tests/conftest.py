@@ -22,6 +22,12 @@ def pytest_addoption(parser):
         default="admin",
         help="password for miniserver communication",
     )
+    parser.addoption(
+        "--use-tls",
+        action="store_true",
+        default=False,
+        help="use tls encryption",
+    )
 
 
 def pytest_configure(config):
@@ -45,5 +51,5 @@ def online_credentials(request):
     credentials["port"] = request.config.getoption("--port")
     credentials["username"] = request.config.getoption("--username")
     credentials["password"] = request.config.getoption("--password")
-
+    credentials["use_tls"] = request.config.getoption("--use-tls")
     return credentials
