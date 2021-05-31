@@ -3,6 +3,7 @@ from pyloxone_api import LoxAPI
 import pyloxone_api
 from pyloxone_api.api import _SaltMine
 from pyloxone_api.const import LOXAPPPATH
+from pyloxone_api.exceptions import LoxoneHTTPStatusError
 
 
 @pytest.fixture
@@ -69,20 +70,25 @@ class Test_get_json:
         'l6O85ECAwEAAQ==-----END CERTIFICATE-----", "Code": "200"}}'
     )
 
-    async def test_LoxApp_json_http_error(self, httpx_mock, dummy_miniserver):
+    @pytest.mark.parametrize("status_code", [404, 500, 900])
+    async def test_LoxApp_json_http_error(
+        self, httpx_mock, dummy_miniserver, status_code
+    ):
         """Test http error from server"""
-        httpx_mock.add_response(status_code=404)
-        result = await dummy_miniserver.getJson()
-        assert result is False
+        httpx_mock.add_response(status_code)
+        with pytest.raises(LoxoneHTTPStatusError):
+            await dummy_miniserver.getJson()
 
     async def test_LoxApp_getversion(self, httpx_mock, dummy_miniserver):
         """Test fetching of https_status, version, json etc"""
         httpx_mock.add_response(
-            url="http://example.com/jdev/cfg/apiKey", data=API_KEY_RETURN
+            url="http://example.com/jdev/cfg/apiKey", data=self.API_KEY_RETURN
         )
-        httpx_mock.add_response(url=f"http://example.com{LOXAPPPATH}", data=LOXAPP3)
         httpx_mock.add_response(
-            url="http://example.com/jdev/sys/getPublicKey", data=PUBLIC_KEY_RETURN
+            url=f"http://example.com{LOXAPPPATH}", data=self.LOXAPP3
+        )
+        httpx_mock.add_response(
+            url="http://example.com/jdev/sys/getPublicKey", data=self.PUBLIC_KEY_RETURN
         )
 
         _ = await dummy_miniserver.getJson()

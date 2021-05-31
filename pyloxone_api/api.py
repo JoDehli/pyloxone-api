@@ -54,6 +54,8 @@ from .const import (
     TOKEN_PERMISSION,
 )
 
+
+from .exceptions import LoxoneHTTPStatusError, LoxoneRequestError
 from .lxtoken import LxToken
 
 _LOGGER = logging.getLogger(__name__)
@@ -109,27 +111,36 @@ class LoxAPI:
             token_filename=self._token_persist_filename,
         )
 
+    async def _raise_if_not_200(self, response):
+        """An httpx event hook, to ensure that http responses other than 200
+        raise an exception"""
+        # Loxone response codes are a bit odd. It is not clear whether a response which
+        # is not 200 is ever OK (eg it is unclear whether redirect response are issued).
+        # json responses also have a "Code" key, but it is unclear whether this is ever
+        # different from the http response code. At the moment, we ignore it.
+        #
+        # And there are references to non-standard codes in the docs (eg a 900 error).
+        # At present, treat any non-200 code as an exception.
+        if response.status_code != 200:
+            raise LoxoneHTTPStatusError(
+                f"Code {response.status_code}. Miniserver response was {response.text}"
+            )
+
     async def getJson(self):
         """Obtain basic info from the miniserver"""
         # All initial http/https requests are carried out here, for simplicity. They
-        # can all use the same httpx.AsyncClient instance
+        # can all use the same httpx.AsyncClient instance. Any non-200 response from
+        # the miniserver will cause an exception to be raised, via the event_hook
         scheme = "https" if self._use_tls else "http"
         client = httpx.AsyncClient(
             auth=(self._user, self._password),
             base_url=f"{scheme}://{self._host}:{self._port}",
             verify=self._tls_check_hostname,
             timeout=TIMEOUT,
+            event_hooks={"response": [self._raise_if_not_200]},
         )
         try:
-            # Get details of https capability, version info etc
             api_resp = await client.get("/jdev/cfg/apiKey")
-            if api_resp.status_code != 200:
-                _LOGGER.error(
-                    f"Could not connect to Loxone! Status code {api_resp.status_code}."
-                )
-                await client.aclose()
-                return False
-
             api_data = api_resp.json()
             value = api_data.get("LL", {}).get("value", "{}")
             # The json returned by the miniserver is invalid. It contains " and '.
@@ -163,9 +174,24 @@ class LoxAPI:
                 "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
             ).replace("-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n")
 
+        # Handle errors. An http error getting any of the required data is
+        # probably fatal, so log it and raise it for handling elsewhere. Other errors
+        # are (hopefully) unlikely, but are not handled here, so will be raised
+        # normally.
+        except httpx.RequestError as exc:
+            _LOGGER.error(
+                f'An error "{exc}" occurred while requesting {exc.request.url!r}.'
+            )
+            raise LoxoneRequestError(exc) from None
+        except LoxoneHTTPStatusError as exc:
+            _LOGGER.error(exc)
+            raise
+
+        else:
+            return
         finally:
+            # Async httpx client must always be closed
             await client.aclose()
-        return status
 
     async def _refresh_token(self):
         while True:
@@ -425,6 +451,9 @@ class LoxAPI:
                 message = await self._ws.recv()
                 await self._async_process_message(message)
                 await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            _LOGGER.debug("Cancelling .....")
+            raise
         except:
             await asyncio.sleep(5)
             if self._ws.closed and self._ws.close_code in [4004, 4005]:

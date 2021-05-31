@@ -23,5 +23,4 @@ async def test_online(online_credentials):
         use_tls=online_credentials["use_tls"],
     )
 
-    request_code = await api.getJson()
-    assert request_code == 200
+    await api.getJson()
