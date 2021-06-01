@@ -56,7 +56,7 @@ from .const import (
 
 
 from .exceptions import LoxoneHTTPStatusError, LoxoneRequestError
-from .lxtoken import LxToken
+from .loxtoken import LoxToken
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.DEBUG)
@@ -106,7 +106,7 @@ class LoxAPI:
         self.version = None  # a string, eg "12.0.1.2"
         self._version = 0  # a list of ints eg [12,0,1,2]
         self._https_status = None  # None = no TLS, 1 = TLS available, 2 = cert expired
-        self._token = LxToken(
+        self._token = LoxToken(
             token_dir=self.config_dir,
             token_filename=self._token_persist_filename,
         )
@@ -338,10 +338,10 @@ class LoxAPI:
         # Read token from file
 
         _LOGGER.debug("try to get_token_from_file")
-        try:
-            if self._token.load():
-                _LOGGER.debug("token successfully loaded from file")
-        except OSError:
+
+        if self._token.load():
+            _LOGGER.debug("token successfully loaded from file")
+        else:
             _LOGGER.debug("error token read")
 
         # Init resa cipher
@@ -690,7 +690,7 @@ class LoxAPI:
                     self._token.valid_until = resp_json["LL"]["value"]["validUntil"]
                     self._token.hash_alg = key_and_salt.hash_alg
 
-        if self._token.save() == ERROR_VALUE:
+        if not self._token.save():
             return ERROR_VALUE
         return True
 
