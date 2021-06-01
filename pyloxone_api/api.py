@@ -207,7 +207,7 @@ class LoxAPI:
                 if "value" in resp_json["LL"]:
                     key = resp_json["LL"]["value"]
                     if key == "":
-                        if self._version < 12.0:
+                        if self._version < [12, 0]:
                             digester = HMAC.new(
                                 binascii.unhexlify(key),
                                 self._token.token.encode("utf-8"),
@@ -222,7 +222,7 @@ class LoxAPI:
                         token_hash = digester.hexdigest()
 
             if token_hash is not None:
-                if self._version < 10.2:
+                if self._version < [10, 2]:
                     command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
                 else:
                     command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
@@ -655,7 +655,7 @@ class LoxAPI:
 
         new_hash = self._hash_credentials(key_and_salt)
 
-        if self._version < 10.2:
+        if self._version < [10, 2]:
             command = (
                 "{}{}/{}/{}/edfc5f9a-df3f-4cad-9dddcdc42c732be2"
                 "/pyloxone_api".format(
