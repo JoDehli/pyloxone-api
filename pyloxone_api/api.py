@@ -106,10 +106,6 @@ class LoxAPI:
         self.version = None  # a string, eg "12.0.1.2"
         self._version = 0  # a list of ints eg [12,0,1,2]
         self._https_status = None  # None = no TLS, 1 = TLS available, 2 = cert expired
-        self._token = LoxToken(
-            token_dir=self.config_dir,
-            token_filename=self._token_persist_filename,
-        )
 
     async def _raise_if_not_200(self, response):
         """An httpx event hook, to ensure that http responses other than 200
@@ -335,14 +331,6 @@ class LoxAPI:
         await self._ws.send(command)
 
     async def async_init(self):
-        # Read token from file
-
-        _LOGGER.debug("try to get_token_from_file")
-
-        if self._token.load():
-            _LOGGER.debug("token successfully loaded from file")
-        else:
-            _LOGGER.debug("error token read")
 
         # Init resa cipher
         try:
@@ -377,13 +365,13 @@ class LoxAPI:
         try:
             scheme = "wss" if self._use_tls else "ws"
             url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
+            # pylint: disable=no-member
             if self._use_tls:
-                # pylint: disable=no-member
+
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
                 self._ws = await wslib.connect(url, timeout=TIMEOUT, ssl=ssl_context)
             else:
-                # pylint: disable=no-member
                 self._ws = await wslib.connect(url, timeout=TIMEOUT)
 
             await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
@@ -409,11 +397,17 @@ class LoxAPI:
 
         self._encryption_ready = True
 
-        if (
-            self._token is None
-            or self._token.token == ""
-            or self._token.seconds_to_expire() < 300
-        ):
+        # Read token from file
+        self._token = LoxToken(
+            token_dir=self.config_dir,
+            token_filename=self._token_persist_filename,
+        )
+        loaded = self._token.load()
+        if loaded:
+            _LOGGER.debug("token successfully loaded from file")
+        else:
+            _LOGGER.debug("error token read")
+        if not loaded or (self._token.seconds_to_expire() < 300):
             res = await self._acquire_token()
         else:
             res = await self._use_token()

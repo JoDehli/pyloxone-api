@@ -42,7 +42,7 @@ class LoxToken:
         except (ValueError, KeyError, OSError):
             _LOGGER.debug(f"Cannot load token from {persist_token}")
             return False
-        _LOGGER.debug("load_token successfully...")
+        _LOGGER.debug(f"load_token successfully from {persist_token}")
         return True
 
     def save(self):
