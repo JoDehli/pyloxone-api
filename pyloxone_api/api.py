@@ -87,8 +87,6 @@ class LoxAPI:
         self._key = get_random_bytes(AES_KEY_SIZE)
         self._saltmine = _SaltMine()
         self._public_key = None
-        self._rsa_cipher = None
-        self._session_key = None
         self._ws = None
         self._current_message_typ = None
         self._encryption_ready = False
@@ -333,7 +331,7 @@ class LoxAPI:
 
         # Init resa cipher
         try:
-            self._rsa_cipher = PKCS1_v1_5.new(RSA.importKey(self._public_key))
+            rsa_cipher = PKCS1_v1_5.new(RSA.importKey(self._public_key))
             _LOGGER.debug("init_rsa_cipher successfully...")
             result = True
         except KeyError:
@@ -348,9 +346,9 @@ class LoxAPI:
         try:
             aes_key = self._key.hex()
             iv = self._iv.hex()
-            sess = f"{aes_key}:{iv}"
-            sess = self._rsa_cipher.encrypt(bytes(sess, "utf-8"))
-            self._session_key = b64encode(sess).decode("utf-8")
+            session_key = f"{aes_key}:{iv}"
+            session_key = rsa_cipher.encrypt(bytes(session_key, "utf-8"))
+            session_key = b64encode(session_key).decode("utf-8")
             _LOGGER.debug("generate_session_key successfully...")
         except ValueError:
             _LOGGER.debug("error generate_session_key...")
@@ -364,11 +362,18 @@ class LoxAPI:
             if self._use_tls:
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
-                self._ws = await wslib.connect(url, timeout=TIMEOUT, ssl=ssl_context)
+                self._ws = await wslib.connect(
+                    url,
+                    timeout=TIMEOUT,
+                    ssl=ssl_context,
+                    subprotocols=["remotecontrol"],
+                )
             else:
-                self._ws = await wslib.connect(url, timeout=TIMEOUT)
+                self._ws = await wslib.connect(
+                    url, timeout=TIMEOUT, subprotocols=["remotecontrol"]
+                )
 
-            await self._ws.send(f"{CMD_KEY_EXCHANGE}{self._session_key}")
+            await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
 
             message = await self._ws.recv()
             self._unpack_loxone_message(message)
