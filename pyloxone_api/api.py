@@ -58,8 +58,6 @@ from .exceptions import LoxoneHTTPStatusError, LoxoneRequestError
 from .loxtoken import LoxToken
 
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.setLevel(logging.DEBUG)
-_LOGGER.addHandler(logging.StreamHandler())
 
 
 class LoxAPI:

@@ -13,7 +13,7 @@ import asyncio
 import logging
 import sys
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger("pyloxone_api")
 _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
 
