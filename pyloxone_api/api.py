@@ -5,7 +5,6 @@ For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/pyloxone-api
 """
 import asyncio
-import binascii
 import hashlib
 import json
 import logging
@@ -205,13 +204,13 @@ class LoxAPI:
                     if key == "":
                         if self._version < [12, 0]:
                             digester = HMAC.new(
-                                binascii.unhexlify(key),
+                                bytes.fromhex(key),
                                 self._token.token.encode("utf-8"),
                                 SHA1,
                             )
                         else:
                             digester = HMAC.new(
-                                binascii.unhexlify(key),
+                                bytes.fromhex(key),
                                 self._token.token.encode("utf-8"),
                                 SHA256,
                             )
@@ -303,13 +302,13 @@ class LoxAPI:
         pwd_hash = m.hexdigest().upper()
         if self._visual_hash.hash_alg == "SHA1":
             digester = HMAC.new(
-                binascii.unhexlify(self._visual_hash.key),
+                bytes.fromhex(self._visual_hash.key),
                 pwd_hash.encode("utf-8"),
                 SHA1,
             )
         elif self._visual_hash.hash_alg == "SHA256":
             digester = HMAC.new(
-                binascii.unhexlify(self._visual_hash.key),
+                bytes.fromhex(self._visual_hash.key),
                 pwd_hash.encode("utf-8"),
                 SHA256,
             )
@@ -347,18 +346,14 @@ class LoxAPI:
 
         # Generate session key
         try:
-            aes_key = binascii.hexlify(self._key).decode("utf-8")
-            iv = binascii.hexlify(self._iv).decode("utf-8")
+            aes_key = self._key.hex()
+            iv = self._iv.hex()
             sess = f"{aes_key}:{iv}"
             sess = self._rsa_cipher.encrypt(bytes(sess, "utf-8"))
             self._session_key = b64encode(sess).decode("utf-8")
             _LOGGER.debug("generate_session_key successfully...")
-            result1 = True
-        except KeyError:
+        except ValueError:
             _LOGGER.debug("error generate_session_key...")
-            result1 = False
-        session_gen = result1
-        if not session_gen:
             return ERROR_VALUE
 
         # Exchange keys
@@ -367,7 +362,6 @@ class LoxAPI:
             url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
             # pylint: disable=no-member
             if self._use_tls:
-
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
                 self._ws = await wslib.connect(url, timeout=TIMEOUT, ssl=ssl_context)
@@ -607,13 +601,13 @@ class LoxAPI:
                     if key != "":
                         if self._token.hash_alg == "SHA1":
                             digester = HMAC.new(
-                                binascii.unhexlify(key),
+                                bytes.fromhex(key),
                                 self._token.token.encode("utf-8"),
                                 SHA1,
                             )
                         elif self._token.hash_alg == "SHA256":
                             digester = HMAC.new(
-                                binascii.unhexlify(key),
+                                bytes.fromhex(key),
                                 self._token.token.encode("utf-8"),
                                 SHA256,
                             )
@@ -730,11 +724,11 @@ class LoxAPI:
 
             if key_salt.hash_alg == "SHA1":
                 digester = HMAC.new(
-                    binascii.unhexlify(key_salt.key), pwd_hash.encode("utf-8"), SHA1
+                    bytes.fromhex(key_salt.key), pwd_hash.encode("utf-8"), SHA1
                 )
             elif key_salt.hash_alg == "SHA256":
                 digester = HMAC.new(
-                    binascii.unhexlify(key_salt.key), pwd_hash.encode("utf-8"), SHA256
+                    bytes.fromhex(key_salt.key), pwd_hash.encode("utf-8"), SHA256
                 )
             _LOGGER.debug("hash_credentials successfully...")
             return digester.hexdigest()
