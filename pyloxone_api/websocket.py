@@ -1,15 +1,28 @@
-"""A websocket implementation with useful methods"""
-import asyncio
-from pyloxone_api.message import MessageType, parse_header, parse_message
+"""A websocket implementation with useful methods.
+
+This class will log messages sent and received, at the DEBUG level.
+"""
+import logging
+
 from websockets.client import WebSocketClientProtocol
+
+from pyloxone_api.message import MessageType, parse_header, parse_message
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Websocket(WebSocketClientProtocol):
-    socket_lock = asyncio.Lock()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     async def recv(self):
-        async with self.socket_lock:
-            result = await super().recv()
+        result = await super().recv()
+        _LOGGER.debug(f"Received: {result[:30]}")
+        return result
+
+    async def send(self, msg):
+        result = await super().send(msg)
+        _LOGGER.debug(f"Sent:{msg}")
         return result
 
     async def recv_message(self):
@@ -24,7 +37,7 @@ class Websocket(WebSocketClientProtocol):
         # > MessageHeader. So at ﬁrst you’ll receive the binary Message-Header and then
         # > the payload follows in a separate message.
         #
-        # But this is not quite right. The docs also say, for an out-of-service
+        # But this is not quite right because the docs also say, for an out-of-service
         # indicator:
         #
         # > No message is going to follow this header, the Miniserver closes the
@@ -34,14 +47,20 @@ class Websocket(WebSocketClientProtocol):
         #
         # > An Estimated-Header is always followed by an exact Header to be able to read
         # > the data correctly!
+        #
+        # And:
+        #
+        # a keepalive header is sent by itself. No message body follows it. We
+        # don't need to worry about that here, because keepalive messages are
+        # handled in their own coroutine
 
-        async with self.socket_lock:
-            header_data = await super().recv()
-            header = parse_header(header_data)
-            if header.message_type is MessageType.OUT_OF_SERVICE:
-                return None
-            # get the message body
-            message_data = await super().recv()
-
+        header_data = await self.recv()
+        _LOGGER.debug(f"Parsing header {header_data[:30]}")
+        header = parse_header(header_data)
+        if header.message_type is MessageType.OUT_OF_SERVICE:
+            return None  # perhaps we should raise an exception here
+        # get the message body
+        message_data = await self.recv()
+        _LOGGER.debug(f"Parsing message {message_data[:30]}")
         message = parse_message(message_data, header.message_type)
-        return message.message
+        return message

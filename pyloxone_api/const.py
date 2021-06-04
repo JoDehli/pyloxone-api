@@ -21,8 +21,8 @@ TOKEN_PERMISSION = 4  # 2=web, 4=app
 TOKEN_REFRESH_RETRY_COUNT = 5
 # token will be refreshed 1 day before its expiration date
 TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY = 24 * 60 * 60  # 1 day
-#  if can't determine token expiration date, it will be refreshed after 2 days
-TOKEN_REFRESH_DEFAULT_SECONDS = 2 * 24 * 60 * 60  # 2 days
+
+
 
 LOXAPPPATH = "/data/LoxAPP3.json"
 

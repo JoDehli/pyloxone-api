@@ -8,6 +8,8 @@ import asyncio
 import hashlib
 import json
 import logging
+from pyloxone_api.websocket import Websocket
+from pyloxone_api.message import MessageType, parse_header
 import queue
 import ssl
 import time
@@ -15,8 +17,6 @@ import urllib.parse
 import uuid
 from base64 import b64decode, b64encode
 from collections import namedtuple
-from math import floor  # pylint: disable=no-name-in-module
-from struct import unpack  # pylint: disable=no-name-in-module
 
 import httpx
 import websockets as wslib
@@ -98,6 +98,7 @@ class LoxAPI:
         self.version = None  # a string, eg "12.0.1.2"
         self._version = 0  # a list of ints eg [12,0,1,2]
         self._https_status = None  # None = no TLS, 1 = TLS available, 2 = cert expired
+        self._socket_lock = asyncio.Lock()
 
     async def _raise_if_not_200(self, response):
         """An httpx event hook, to ensure that http responses other than 200
@@ -189,14 +190,18 @@ class LoxAPI:
             await asyncio.sleep(seconds_to_refresh)
             command = f"{CMD_GET_KEY}"
             enc_command = self._encrypt(command)
-            await self._ws.send(enc_command)
-            message = await self._ws.recv()
-            resp_json = json.loads(message)
+            # We need exlusive control of the websocket. Without this, the main
+            # message receiving coroutine could be scheduled whilst we are
+            # waiting for the refresh response, and it would intercept it.
+            async with self._socket_lock:
+                await self._ws.send(enc_command)
+                message = await self._ws.recv_message()
+            resp_json = json.loads(message.message)
             token_hash = None
             if "LL" in resp_json:
                 if "value" in resp_json["LL"]:
                     key = resp_json["LL"]["value"]
-                    if key == "":
+                    if key != "":
                         if self._version < [12, 0]:
                             digester = HMAC.new(
                                 bytes.fromhex(key),
@@ -217,10 +222,11 @@ class LoxAPI:
                 else:
                     command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
 
-                enc_command = self._encrypt(command)
-                await self._ws.send(enc_command)
-                message = await self._ws.recv()
-                resp_json = json.loads(message)
+                async with self._socket_lock:
+                    enc_command = self._encrypt(command)
+                    await self._ws.send(enc_command)
+                    message = await self._ws.recv_message()
+                resp_json = json.loads(message.message)
 
                 _LOGGER.debug(
                     f"Seconds before refresh: {self._token.seconds_to_expire()}"
@@ -236,6 +242,7 @@ class LoxAPI:
                 self._token.save()
 
     async def start(self):
+
         consumer_task = self._ws_listen()
         keep_alive_task = self._keep_alive(KEEP_ALIVE_PERIOD)
         refresh_token_task = self._refresh_token()
@@ -279,7 +286,10 @@ class LoxAPI:
         while True:
             await asyncio.sleep(second)
             if self._encryption_ready:
-                await self._ws.send("keepalive")
+                async with self._socket_lock:
+                    await self._ws.send("keepalive")
+                    response = await self._ws.recv()  # the keepalive response
+                    _LOGGER.debug(f"Keepalive response: {response}")
 
     async def _send_secured(self, device_uuid, value, code):
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"
@@ -359,11 +369,15 @@ class LoxAPI:
                     url,
                     timeout=TIMEOUT,
                     ssl=ssl_context,
+                    create_protocol=Websocket,
                     subprotocols=["remotecontrol"],
                 )
             else:
                 self._ws = await wslib.connect(
-                    url, timeout=TIMEOUT, subprotocols=["remotecontrol"]
+                    url,
+                    timeout=TIMEOUT,
+                    create_protocol=Websocket,
+                    subprotocols=["remotecontrol"],
                 )
         except wslib.WebSocketException as exc:
             _LOGGER.error("Unable to open websocket")
@@ -372,15 +386,13 @@ class LoxAPI:
         # Pass the session key to the miniserver
         await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
 
-        message = await self._ws.recv()
-
-        self._unpack_loxone_message(message)
-        if self._current_message_typ != 0:
+        message = await self._ws.recv_message()
+        if message.message_type is not MessageType.TEXT:
             _LOGGER.debug("error by getting the session key response...")
             return ERROR_VALUE
 
-        message = await self._ws.recv()
-        resp_json = json.loads(message)
+        # message = await self._ws.recv()
+        resp_json = json.loads(message.message)
         if "LL" in resp_json:
             if "Code" in resp_json["LL"]:
                 if resp_json["LL"]["Code"] != "200":
@@ -425,8 +437,7 @@ class LoxAPI:
         if self._ws.closed:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
             return False
-        _ = await self._ws.recv()
-        _ = await self._ws.recv()
+        _ = await self._ws.recv_message()
 
         self._state = "CONNECTED"
         return True
@@ -435,9 +446,8 @@ class LoxAPI:
         """Listen to all commands from the Miniserver."""
         try:
             while True:
-                message = await self._ws.recv()
-                await self._async_process_message(message)
-                await asyncio.sleep(0)
+
+                await self._async_process_message()
         except asyncio.CancelledError:
             _LOGGER.debug("Cancelling .....")
             raise
@@ -450,122 +460,55 @@ class LoxAPI:
             elif self._ws.closed and self._ws.close_code:
                 await self._reconnect()
 
-    async def _async_process_message(self, message):
+    async def _async_process_message(self):
         """Process the messages."""
-        if len(message) == 8:
-            unpacked_data = unpack("ccccI", message)
-            self._current_message_typ = int.from_bytes(
-                unpacked_data[1], byteorder="big"
-            )
-            if self._current_message_typ == 6:
-                _LOGGER.debug("Keep alive response received...")
-        else:
-            parsed_data = self._parse_loxone_message(message)
+        async with self._socket_lock:
+            message = await self._ws.recv_message()
+
+        parsed_data = message.as_dict()
+        try:
             _LOGGER.debug(
                 "message [type:{}]):{}".format(
-                    self._current_message_typ, json.dumps(parsed_data, indent=2)
+                    message.message_type, json.dumps(parsed_data, indent=2)
                 )
             )
-
-            try:
-                resp_json = json.loads(parsed_data)
-            except TypeError:
-                resp_json = None
-
-            # Visual hash and key response
-            if resp_json is not None and "LL" in resp_json:
-                if (
-                    "control" in resp_json["LL"]
-                    and "code" in resp_json["LL"]
-                    and resp_json["LL"]["code"] in [200, "200"]
-                ):
-                    if "value" in resp_json["LL"]:
-                        if (
-                            "key" in resp_json["LL"]["value"]
-                            and "salt" in resp_json["LL"]["value"]
-                        ):
-                            key_and_salt = LxJsonKeySalt()
-                            key_and_salt.read_user_salt_response(parsed_data)
-                            self._visual_hash = key_and_salt
-
-                            while not self._secured_queue.empty():
-                                secured_message = self._secured_queue.get()
-                                await self._send_secured(
-                                    secured_message[0],
-                                    secured_message[1],
-                                    secured_message[2],
-                                )
-
-            if self.message_call_back is not None:
-                if "LL" not in parsed_data and parsed_data != {}:
-                    # pylint: disable=not-callable
-                    await self.message_call_back(parsed_data)
-            self._current_message_typ = None
-            await asyncio.sleep(0)
-
-    def _parse_loxone_message(self, message):
-        """Parser of the Loxone message."""
-        event_dict = {}
-        if self._current_message_typ == 0:
-            event_dict = message
-        elif self._current_message_typ == 1:
+        except:
             pass
-        elif self._current_message_typ == 2:
-            length = len(message)
-            num = length / 24
-            start = 0
-            end = 24
-            for _ in range(int(num)):
-                packet = message[start:end]
-                event_uuid = uuid.UUID(bytes_le=packet[0:16])
-                fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
-                uuidstr = f"{fields[0]}-{fields[1]}-{fields[2]}-{fields[3]}{fields[4]}"
-                value = unpack("d", packet[16:24])[0]
-                event_dict[uuidstr] = value
-                start += 24
-                end += 24
-        elif self._current_message_typ == 3:
-            start = 0
 
-            def get_text(message, start, offset):
-                first = start
-                second = start + offset
-                event_uuid = uuid.UUID(bytes_le=message[first:second])
-                first += offset
-                second += offset
+        try:
+            resp_json = json.loads(parsed_data)
+        except TypeError:
+            resp_json = None
 
-                icon_uuid_fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
-                uuidstr = "{}-{}-{}-{}{}".format(
-                    icon_uuid_fields[0],
-                    icon_uuid_fields[1],
-                    icon_uuid_fields[2],
-                    icon_uuid_fields[3],
-                    icon_uuid_fields[4],
-                )
+        # Visual hash and key response
+        if resp_json is not None and "LL" in resp_json:
+            if (
+                "control" in resp_json["LL"]
+                and "code" in resp_json["LL"]
+                and resp_json["LL"]["code"] in [200, "200"]
+            ):
+                if "value" in resp_json["LL"]:
+                    if (
+                        "key" in resp_json["LL"]["value"]
+                        and "salt" in resp_json["LL"]["value"]
+                    ):
+                        key_and_salt = LxJsonKeySalt()
+                        key_and_salt.read_user_salt_response(parsed_data)
+                        self._visual_hash = key_and_salt
 
-                icon_uuid = uuid.UUID(bytes_le=message[first:second])
-                icon_uuid_fields = icon_uuid.urn.replace("urn:uuid:", "").split("-")
+                        while not self._secured_queue.empty():
+                            secured_message = self._secured_queue.get()
+                            await self._send_secured(
+                                secured_message[0],
+                                secured_message[1],
+                                secured_message[2],
+                            )
 
-                first = second
-                second += 4
-
-                text_length = unpack("<I", message[first:second])[0]
-
-                first = second
-                second = first + text_length
-                message_str = unpack(f"{text_length}s", message[first:second])[0]
-                start += (floor((4 + text_length + 16 + 16 - 1) / 4) + 1) * 4
-                event_dict[uuidstr] = message_str.decode("utf-8")
-                return start
-
-            while start < len(message):
-                start = get_text(message, start, 16)
-
-        elif self._current_message_typ == 6:
-            event_dict["keep_alive"] = "received"
-        else:
-            self._current_message_typ = 7
-        return event_dict
+        if self.message_call_back is not None:
+            if "LL" not in parsed_data and parsed_data != {}:
+                # pylint: disable=not-callable
+                await self.message_call_back(parsed_data)
+        await asyncio.sleep(0)
 
     async def _use_token(self):
         token_hash = await self._hash_token()
@@ -574,10 +517,8 @@ class LoxAPI:
         command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._user}"
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
-        message = await self._ws.recv()
-        self._unpack_loxone_message(message)
-        message = await self._ws.recv()
-        resp_json = json.loads(message)
+        message = await self._ws.recv_message()
+        resp_json = json.loads(message.message)
         if "LL" in resp_json:
             if "code" in resp_json["LL"]:
                 if resp_json["LL"]["code"] == "200":
@@ -591,10 +532,8 @@ class LoxAPI:
             command = f"{CMD_GET_KEY}"
             enc_command = self._encrypt(command)
             await self._ws.send(enc_command)
-            message = await self._ws.recv()
-            self._unpack_loxone_message(message)
-            message = await self._ws.recv()
-            resp_json = json.loads(message)
+            message = await self._ws.recv_message()
+            resp_json = json.loads(message.message)
             if "LL" in resp_json:
                 if "value" in resp_json["LL"]:
                     key = resp_json["LL"]["value"]
@@ -633,13 +572,10 @@ class LoxAPI:
             return ERROR_VALUE
 
         await self._ws.send(enc_command)
-        message = await self._ws.recv()
-        self._unpack_loxone_message(message)
-
-        message = await self._ws.recv()
+        message = await self._ws.recv_message()
 
         key_and_salt = LxJsonKeySalt()
-        key_and_salt.read_user_salt_response(message)
+        key_and_salt.read_user_salt_response(message.message)
 
         new_hash = self._hash_credentials(key_and_salt)
 
@@ -663,11 +599,8 @@ class LoxAPI:
 
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
-        message = await self._ws.recv()
-        self._unpack_loxone_message(message)
-        message = await self._ws.recv()
-
-        resp_json = json.loads(message)
+        message = await self._ws.recv_message()
+        resp_json = json.loads(message.message)
         if "LL" in resp_json:
             if "value" in resp_json["LL"]:
                 if (
@@ -750,17 +683,6 @@ class LoxAPI:
         except ValueError:
             _LOGGER.debug("error hash_credentials...")
             return None
-
-    def _unpack_loxone_message(self, message):
-        if len(message) == 8:
-            try:
-                unpacked_data = unpack("ccccI", message)
-                self._current_message_typ = int.from_bytes(
-                    unpacked_data[1], byteorder="big"
-                )
-                _LOGGER.debug("unpack_message successfully...")
-            except ValueError:
-                _LOGGER.debug("error unpack_message...")
 
 
 # Loxone Stuff
