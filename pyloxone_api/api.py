@@ -54,7 +54,7 @@ from .const import (
 )
 
 
-from .exceptions import LoxoneHTTPStatusError, LoxoneRequestError
+from .exceptions import LoxoneException, LoxoneHTTPStatusError, LoxoneRequestError
 from .loxtoken import LoxToken
 
 _LOGGER = logging.getLogger(__name__)
@@ -157,10 +157,12 @@ class LoxAPI:
             pk_data = await client.get(CMD_GET_PUBLIC_KEY)
             pk_json = pk_data.json()
             pk = pk_json.get("LL", {}).get("value", "")
-            # The certificate returned by Loxone is not properly PEM encoded. It needs
-            # newlines inserting. Python does not insist on 64 char line lengths
-            # however. If, for some reason, no certificate is returned, _public_key will
-            # be ""
+            # Loxone returns a certificate instead of a key, and the certificate is not
+            # properly PEM encoded because it does not contain newlines before/after the
+            # boundaries. We need to fix both problems. Proper PEM encoding requires 64
+            # char line lengths throughout, but Python does not seem to insist on this.
+            # If, for some reason, no certificate is returned, _public_key will be an
+            # empty string.
             self._public_key = pk.replace(
                 "-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n"
             ).replace("-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n")
@@ -327,36 +329,34 @@ class LoxAPI:
 
     async def async_init(self):
 
-        # Init resa cipher
+        # Init RSA cipher
         try:
+            # RSA PKCS1 has been broken for a long time. Loxone uses it anyway
             rsa_cipher = PKCS1_v1_5.new(RSA.importKey(self._public_key))
             _LOGGER.debug("init_rsa_cipher successfully...")
-            result = True
-        except KeyError:
-            _LOGGER.debug("init_rsa_cipher error...")
-            _LOGGER.debug(f"{traceback.print_exc()}")
-            result = False
-        rsa_gen = result
-        if not rsa_gen:
-            return ERROR_VALUE
+        except ValueError as exc:
+            _LOGGER.error(f"Error creating RSA cipher: {exc}")
+            raise LoxoneException(exc)
 
         # Generate session key
+        aes_key = self._key.hex()
+        iv = self._iv.hex()
+        session_key = f"{aes_key}:{iv}"
         try:
-            aes_key = self._key.hex()
-            iv = self._iv.hex()
-            session_key = f"{aes_key}:{iv}"
             session_key = rsa_cipher.encrypt(bytes(session_key, "utf-8"))
             session_key = b64encode(session_key).decode("utf-8")
             _LOGGER.debug("generate_session_key successfully...")
-        except ValueError:
-            _LOGGER.debug("error generate_session_key...")
-            return ERROR_VALUE
+        except ValueError as exc:
+            _LOGGER.error(f"Error generating session key: {exc}")
+            raise LoxoneException(exc)
 
         # Exchange keys
-        try:
-            scheme = "wss" if self._use_tls else "ws"
-            url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
-            # pylint: disable=no-member
+
+        # Open a websocket connection
+        scheme = "wss" if self._use_tls else "ws"
+        url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
+        # pylint: disable=no-member
+        try:    
             if self._use_tls:
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
@@ -370,26 +370,27 @@ class LoxAPI:
                 self._ws = await wslib.connect(
                     url, timeout=TIMEOUT, subprotocols=["remotecontrol"]
                 )
+        except wslib.WebSocketException as exc:
+            _LOGGER.error("Unable to open websocket")
+            raise LoxoneException(f"Unable to open websocket: {exc}")
 
-            await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
+        # Pass the session key to the miniserver
+        await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
 
-            message = await self._ws.recv()
-            self._unpack_loxone_message(message)
-            if self._current_message_typ != 0:
-                _LOGGER.debug("error by getting the session key response...")
-                return ERROR_VALUE
+        message = await self._ws.recv()
 
-            message = await self._ws.recv()
-            resp_json = json.loads(message)
-            if "LL" in resp_json:
-                if "Code" in resp_json["LL"]:
-                    if resp_json["LL"]["Code"] != "200":
-                        return ERROR_VALUE
-            else:
-                return ERROR_VALUE
+        self._unpack_loxone_message(message)
+        if self._current_message_typ != 0:
+            _LOGGER.debug("error by getting the session key response...")
+            return ERROR_VALUE
 
-        except ConnectionError:
-            _LOGGER.debug("connection error...")
+        message = await self._ws.recv()
+        resp_json = json.loads(message)
+        if "LL" in resp_json:
+            if "Code" in resp_json["LL"]:
+                if resp_json["LL"]["Code"] != "200":
+                    return ERROR_VALUE
+        else:
             return ERROR_VALUE
 
         self._encryption_ready = True
