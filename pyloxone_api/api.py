@@ -441,7 +441,8 @@ class LoxAPI:
         except asyncio.CancelledError:
             _LOGGER.debug("Cancelling .....")
             raise
-        except:
+        except Exception as exc:
+            _LOGGER.exception(exc)
             await asyncio.sleep(5)
             if self._ws.closed and self._ws.close_code in [4004, 4005]:
                 self._token.delete()
