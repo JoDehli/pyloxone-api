@@ -17,6 +17,12 @@ from . import LoxAPI
 _LOGGER = logging.getLogger("pyloxone_api")
 _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
+# If you want to see what is going on at the websocket level, uncomment the following
+# lines
+
+# _LOGGER2 = logging.getLogger("websockets")
+# _LOGGER2.setLevel(logging.DEBUG)
+# _LOGGER2.addHandler(logging.StreamHandler())
 
 
 async def main():
