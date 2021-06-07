@@ -11,9 +11,9 @@ import logging
 import queue
 import time
 import traceback
-import urllib.request as req
 import uuid
-from base64 import b64encode
+import urllib.parse
+from base64 import b64decode, b64encode
 from collections import namedtuple
 from math import floor  # pylint: disable=no-name-in-module
 from struct import unpack  # pylint: disable=no-name-in-module
@@ -356,7 +356,7 @@ class LoxAPI:
         scheme = "wss" if self._use_tls else "ws"
         url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
         # pylint: disable=no-member
-        try:    
+        try:
             if self._use_tls:
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
@@ -706,8 +706,25 @@ class LoxAPI:
         aes_cipher = result
         encrypted = aes_cipher.encrypt(s)
         encoded = b64encode(encrypted)
-        encoded_url = req.pathname2url(encoded.decode("utf-8"))
+        encoded_url = urllib.parse.quote(encoded.decode("utf-8"))
         return CMD_ENCRYPT_CMD + encoded_url
+
+    def _decrypt(self, command: str) -> bytes:
+        """AES decrypt a command returned by the miniserver."""
+        # control will be in the form:
+        # "jdev/sys/enc/CHG6k...A=="
+        # Encrypted strings returned by the miniserver are not %encoded (even
+        # if they were when sent to the miniserver )
+        remove_text = "jdev/sys/enc/"
+        enc_text = (
+            command[len(remove_text) :] if command.startswith(remove_text) else command
+        )
+        decoded = b64decode(enc_text)
+        aes_cipher = AES.new(self._key, AES.MODE_CBC, self._iv)
+        decrypted = aes_cipher.decrypt(decoded)
+        unpadded = Padding.unpad(decrypted, 16)
+        # The miniserver seems to terminate the text with a zero byte
+        return unpadded.rstrip(b"\x00")
 
     def _hash_credentials(self, key_salt):
         try:
