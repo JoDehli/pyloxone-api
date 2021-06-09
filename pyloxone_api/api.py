@@ -9,10 +9,10 @@ import hashlib
 import json
 import logging
 import queue
+import ssl
 import time
-import traceback
-import uuid
 import urllib.parse
+import uuid
 from base64 import b64decode, b64encode
 from collections import namedtuple
 from math import floor  # pylint: disable=no-name-in-module
@@ -25,7 +25,6 @@ from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 from Crypto.Util import Padding
-import ssl
 
 from .const import (
     AES_KEY_SIZE,
@@ -52,8 +51,6 @@ from .const import (
     TIMEOUT,
     TOKEN_PERMISSION,
 )
-
-
 from .exceptions import LoxoneException, LoxoneHTTPStatusError, LoxoneRequestError
 from .loxtoken import LoxToken
 
@@ -291,9 +288,7 @@ class LoxAPI:
         elif self._visual_hash.hash_alg == "SHA256":
             m = hashlib.sha256()
         else:
-            _LOGGER.error(
-                "Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg)
-            )
+            _LOGGER.error(f"Unrecognised hash algorithm: {self._visual_hash.hash_alg}")
             return -1
 
         m.update(pwd_hash_str.encode("utf-8"))
@@ -413,7 +408,7 @@ class LoxAPI:
             if res is ERROR_VALUE:
                 self._token.delete()
                 _LOGGER.debug(
-                    "Old Token found and deleted. Please restart Homeassistant to acquire new token."
+                    "Old Token found and deleted. Please restart to acquire new token."
                 )
                 return ERROR_VALUE
 
@@ -734,9 +729,7 @@ class LoxAPI:
             elif key_salt.hash_alg == "SHA256":
                 m = hashlib.sha256()
             else:
-                _LOGGER.error(
-                    "Unrecognised hash algorithm: {}".format(key_salt.hash_alg)
-                )
+                _LOGGER.error(f"Unrecognised hash algorithm: {key_salt.hash_alg}")
                 return None
 
             m.update(pwd_hash_str.encode("utf-8"))

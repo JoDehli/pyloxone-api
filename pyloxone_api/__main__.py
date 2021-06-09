@@ -8,10 +8,11 @@ From the command line, run:
 where username, password host and port are your Loxone login credentials
 
 """
-from pyloxone_api import LoxAPI
 import asyncio
 import logging
 import sys
+
+from . import LoxAPI
 
 _LOGGER = logging.getLogger("pyloxone_api")
 _LOGGER.setLevel(logging.DEBUG)

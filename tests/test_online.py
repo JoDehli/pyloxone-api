@@ -5,6 +5,7 @@ pasword to 'admin'
 
 """
 import pytest
+
 from pyloxone_api import LoxAPI
 
 # mark all tests in this module as 'online'. They will

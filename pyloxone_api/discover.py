@@ -5,10 +5,9 @@ import asyncio
 import re
 import socket
 from asyncio.tasks import wait_for
-from typing import Optional
 
 
-async def discover(timeout: int = 5) -> Optional[tuple[str, int, str]]:
+async def discover(timeout: int = 5) -> tuple[str, int, str] | None:
     """
     Attempt to discover a miniserver on the local network.
 

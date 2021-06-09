@@ -1,6 +1,8 @@
-import pytest
-from pyloxone_api.discover import discover
 from ipaddress import ip_address
+
+import pytest
+
+from pyloxone_api.discover import discover
 
 
 @pytest.mark.online

@@ -1,7 +1,9 @@
 """Tests for the LoxToken class"""
-from pyloxone_api.loxtoken import LoxToken
 from datetime import datetime, timedelta
+
 import pytest
+
+from pyloxone_api.loxtoken import LoxToken
 
 
 def test_seconds_to_expire():

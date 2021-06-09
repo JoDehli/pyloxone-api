@@ -1,6 +1,7 @@
 import pytest
-from pyloxone_api import LoxAPI
+
 import pyloxone_api
+from pyloxone_api import LoxAPI
 from pyloxone_api.api import _SaltMine
 from pyloxone_api.const import LOXAPPPATH
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
@@ -35,7 +36,8 @@ class Test_get_json:
     API_KEY_RETURN = """{
     "LL": {
         "control": "dev/cfg/apiKey",
-        "value": "{'snr': '12:34:56:78:9A:BC', 'version':'12.0.2.24', 'key':'1234', 'httpsStatus':1}",
+        "value":
+        "{'snr': '12:34:56:78:9A:BC', 'version':'12.0.2.24', 'key':'1234', 'httpsStatus':1}",
         "Code": "200"
     }
     }"""

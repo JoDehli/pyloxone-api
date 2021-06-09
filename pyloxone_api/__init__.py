@@ -7,6 +7,7 @@ https://github.com/JoDehli/pyloxone-api
 
 
 import logging
+
 from .api import LoxAPI  # noqa
 
 _LOGGER = logging.getLogger(__name__)
