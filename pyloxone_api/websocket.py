@@ -17,7 +17,7 @@ class Websocket(WebSocketClientProtocol):
 
     async def recv(self):
         result = await super().recv()
-        _LOGGER.debug(f"Received: {result[:30]}")
+        _LOGGER.debug(f"Received: {result[:80]}")
         return result
 
     async def send(self, msg):
@@ -55,12 +55,12 @@ class Websocket(WebSocketClientProtocol):
         # handled in their own coroutine
 
         header_data = await self.recv()
-        _LOGGER.debug(f"Parsing header {header_data[:30]}")
+        _LOGGER.debug(f"Parsing header {header_data[:80]}")
         header = parse_header(header_data)
         if header.message_type is MessageType.OUT_OF_SERVICE:
             return None  # perhaps we should raise an exception here
         # get the message body
         message_data = await self.recv()
-        _LOGGER.debug(f"Parsing message {message_data[:30]}")
+        _LOGGER.debug(f"Parsing message {message_data[:80]}")
         message = parse_message(message_data, header.message_type)
         return message

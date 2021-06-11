@@ -1,6 +1,7 @@
 """Classes for handling messages from a miniserver"""
 from __future__ import annotations
 
+import json
 import math
 import struct
 import uuid
@@ -8,6 +9,32 @@ from enum import IntEnum
 from typing import Any
 
 from pyloxone_api.exceptions import LoxoneException
+
+
+class LLResponse:
+    """A class for parsing LL Responses from the miniserver
+
+    An LL Response is a json object often returned by a miniserver in response
+    to a command. It begins "{"LL": {..." and has a control, code and value
+    keys. This class provides easy access to code (as an integer), value and
+    control attributes (as strings), which should be present in every case. If
+    value has sub-values, it will be returned as a dict instead. Raises
+    ValueError if the response cannot be parsed.
+
+    """
+
+    def __init__(self, response: str | bytes) -> None:
+        try:
+            parsed = json.loads(response)
+            # Sometimes, Loxone uses "Code", and sometimes "code"
+            self.code: int = int(
+                parsed.get("LL", {}).get("code", "")
+                or parsed.get("LL", {}).get("Code", "")
+            )
+            self.value: dict[str, str] | str = parsed["LL"]["value"]
+            self.control: str = parsed["LL"]["control"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError(exc)
 
 
 class MessageType(IntEnum):
@@ -21,6 +48,7 @@ class MessageType(IntEnum):
     OUT_OF_SERVICE = 5
     KEEPALIVE = 6
     WEATHER_STATES = 7
+    UNKNOWN = -1
 
 
 class MessageHeader:
@@ -49,6 +77,8 @@ class MessageHeader:
 class BaseMessage:
     """The base class for all messages from the miniserver"""
 
+    message_type = MessageType.UNKNOWN
+
     def __init__(self, message: bytes) -> None:
         self.message: bytes = message
         # For the base class, the dict is the message
@@ -61,8 +91,13 @@ class BaseMessage:
 
 class TextMessage(BaseMessage):
     message_type = MessageType.TEXT
-    # Nothing to do. as_dict inherits from the base class: the dict is the message
-    pass
+
+    def __init__(self, message: bytes) -> None:
+        super().__init__(message)
+        ll_message = LLResponse(message)
+        self.code = ll_message.code
+        self.control = ll_message.control
+        self.value = ll_message.value
 
 
 class BinaryFile(BaseMessage):

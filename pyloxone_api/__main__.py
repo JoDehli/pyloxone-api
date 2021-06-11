@@ -12,7 +12,7 @@ import asyncio
 import logging
 import sys
 
-from . import LoxAPI
+from pyloxone_api import LoxAPI
 
 _LOGGER = logging.getLogger("pyloxone_api")
 _LOGGER.setLevel(logging.DEBUG)

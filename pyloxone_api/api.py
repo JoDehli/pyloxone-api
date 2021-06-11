@@ -4,17 +4,18 @@ Loxone Api
 For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/pyloxone-api
 """
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
 import logging
 from pyloxone_api.websocket import Websocket
-from pyloxone_api.message import MessageType, parse_header
+from pyloxone_api.message import MessageType, LLResponse
 import queue
 import ssl
 import time
 import urllib.parse
-import uuid
 from base64 import b64decode, b64encode
 from collections import namedtuple
 
@@ -130,8 +131,7 @@ class LoxAPI:
         )
         try:
             api_resp = await client.get("/jdev/cfg/apiKey")
-            api_data = api_resp.json()
-            value = api_data.get("LL", {}).get("value", "{}")
+            value = LLResponse(api_resp.text).value
             # The json returned by the miniserver is invalid. It contains " and '.
             # We need to normalise it
             value = json.loads(value.replace("'", '"'))
@@ -153,8 +153,7 @@ class LoxAPI:
 
             # Get the public key
             pk_data = await client.get(CMD_GET_PUBLIC_KEY)
-            pk_json = pk_data.json()
-            pk = pk_json.get("LL", {}).get("value", "")
+            pk = LLResponse(pk_data.text).value
             # Loxone returns a certificate instead of a key, and the certificate is not
             # properly PEM encoded because it does not contain newlines before/after the
             # boundaries. We need to fix both problems. Proper PEM encoding requires 64
@@ -196,25 +195,23 @@ class LoxAPI:
             async with self._socket_lock:
                 await self._ws.send(enc_command)
                 message = await self._ws.recv_message()
-            resp_json = json.loads(message.message)
+            response = LLResponse(message.message)
+            key = response.value
             token_hash = None
-            if "LL" in resp_json:
-                if "value" in resp_json["LL"]:
-                    key = resp_json["LL"]["value"]
-                    if key != "":
-                        if self._version < [12, 0]:
-                            digester = HMAC.new(
-                                bytes.fromhex(key),
-                                self._token.token.encode("utf-8"),
-                                SHA1,
-                            )
-                        else:
-                            digester = HMAC.new(
-                                bytes.fromhex(key),
-                                self._token.token.encode("utf-8"),
-                                SHA256,
-                            )
-                        token_hash = digester.hexdigest()
+            if key != "":
+                if self._version < [12, 0]:
+                    digester = HMAC.new(
+                        bytes.fromhex(key),
+                        self._token.token.encode("utf-8"),
+                        SHA1,
+                    )
+                else:
+                    digester = HMAC.new(
+                        bytes.fromhex(key),
+                        self._token.token.encode("utf-8"),
+                        SHA256,
+                    )
+                token_hash = digester.hexdigest()
 
             if token_hash is not None:
                 if self._version < [10, 2]:
@@ -226,18 +223,12 @@ class LoxAPI:
                     enc_command = self._encrypt(command)
                     await self._ws.send(enc_command)
                     message = await self._ws.recv_message()
-                resp_json = json.loads(message.message)
 
+                if message.message_type is MessageType.TEXT and message.code == 200:
+                    self._token.valid_until = message.value["validUntil"]
                 _LOGGER.debug(
                     f"Seconds before refresh: {self._token.seconds_to_expire()}"
                 )
-
-                if "LL" in resp_json:
-                    if "value" in resp_json["LL"]:
-                        if "validUntil" in resp_json["LL"]["value"]:
-                            self._token.valid_until = resp_json["LL"]["value"][
-                                "validUntil"
-                            ]
 
                 self._token.save()
 
@@ -387,17 +378,8 @@ class LoxAPI:
         await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
 
         message = await self._ws.recv_message()
-        if message.message_type is not MessageType.TEXT:
+        if message.message_type is not MessageType.TEXT or message.code != 200:
             _LOGGER.debug("error by getting the session key response...")
-            return ERROR_VALUE
-
-        # message = await self._ws.recv()
-        resp_json = json.loads(message.message)
-        if "LL" in resp_json:
-            if "Code" in resp_json["LL"]:
-                if resp_json["LL"]["Code"] != "200":
-                    return ERROR_VALUE
-        else:
             return ERROR_VALUE
 
         self._encryption_ready = True
@@ -475,34 +457,22 @@ class LoxAPI:
         except:
             pass
 
-        try:
-            resp_json = json.loads(parsed_data)
-        except TypeError:
-            resp_json = None
-
         # Visual hash and key response
-        if resp_json is not None and "LL" in resp_json:
-            if (
-                "control" in resp_json["LL"]
-                and "code" in resp_json["LL"]
-                and resp_json["LL"]["code"] in [200, "200"]
-            ):
-                if "value" in resp_json["LL"]:
-                    if (
-                        "key" in resp_json["LL"]["value"]
-                        and "salt" in resp_json["LL"]["value"]
-                    ):
-                        key_and_salt = LxJsonKeySalt()
-                        key_and_salt.read_user_salt_response(parsed_data)
-                        self._visual_hash = key_and_salt
+        if message.message_type is MessageType.TEXT and message.code == 200:
+            key_and_salt = LxJsonKeySalt(
+                message.value["key"],
+                message.value["salt"],
+                message.value.get("hashAlg", None),
+            )
+            self._visual_hash = key_and_salt
 
-                        while not self._secured_queue.empty():
-                            secured_message = self._secured_queue.get()
-                            await self._send_secured(
-                                secured_message[0],
-                                secured_message[1],
-                                secured_message[2],
-                            )
+            while not self._secured_queue.empty():
+                secured_message = self._secured_queue.get()
+                await self._send_secured(
+                    secured_message[0],
+                    secured_message[1],
+                    secured_message[2],
+                )
 
         if self.message_call_back is not None:
             if "LL" not in parsed_data and parsed_data != {}:
@@ -518,13 +488,9 @@ class LoxAPI:
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
-        resp_json = json.loads(message.message)
-        if "LL" in resp_json:
-            if "code" in resp_json["LL"]:
-                if resp_json["LL"]["code"] == "200":
-                    if "value" in resp_json["LL"]:
-                        self._token.valid_until = resp_json["LL"]["value"]["validUntil"]
-                    return True
+        if message.message_type is MessageType.TEXT and message.code == 200:
+            self._token.valid_until = message.value["validUntil"]
+            return True
         return ERROR_VALUE
 
     async def _hash_token(self):
@@ -533,32 +499,31 @@ class LoxAPI:
             enc_command = self._encrypt(command)
             await self._ws.send(enc_command)
             message = await self._ws.recv_message()
-            resp_json = json.loads(message.message)
-            if "LL" in resp_json:
-                if "value" in resp_json["LL"]:
-                    key = resp_json["LL"]["value"]
-                    if key != "":
-                        if self._token.hash_alg == "SHA1":
-                            digester = HMAC.new(
-                                bytes.fromhex(key),
-                                self._token.token.encode("utf-8"),
-                                SHA1,
-                            )
-                        elif self._token.hash_alg == "SHA256":
-                            digester = HMAC.new(
-                                bytes.fromhex(key),
-                                self._token.token.encode("utf-8"),
-                                SHA256,
-                            )
-                        else:
-                            _LOGGER.error(
-                                "Unrecognised hash algorithm: {}".format(
-                                    self._token.hash_alg
-                                )
-                            )
-                            return ERROR_VALUE
+            if message.message_type is MessageType.TEXT:
 
-                        return digester.hexdigest()
+                key = message.value
+                if key != "":
+                    if self._token.hash_alg == "SHA1":
+                        digester = HMAC.new(
+                            bytes.fromhex(key),
+                            self._token.token.encode("utf-8"),
+                            SHA1,
+                        )
+                    elif self._token.hash_alg == "SHA256":
+                        digester = HMAC.new(
+                            bytes.fromhex(key),
+                            self._token.token.encode("utf-8"),
+                            SHA256,
+                        )
+                    else:
+                        _LOGGER.error(
+                            "Unrecognised hash algorithm: {}".format(
+                                self._token.hash_alg
+                            )
+                        )
+                        return ERROR_VALUE
+
+                    return digester.hexdigest()
             return ERROR_VALUE
         except:
             return ERROR_VALUE
@@ -574,8 +539,11 @@ class LoxAPI:
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
 
-        key_and_salt = LxJsonKeySalt()
-        key_and_salt.read_user_salt_response(message.message)
+        key_and_salt = LxJsonKeySalt(
+            message.value["key"],
+            message.value["salt"],
+            message.value.get("hashAlg", None),
+        )
 
         new_hash = self._hash_credentials(key_and_salt)
 
@@ -600,16 +568,10 @@ class LoxAPI:
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
-        resp_json = json.loads(message.message)
-        if "LL" in resp_json:
-            if "value" in resp_json["LL"]:
-                if (
-                    "token" in resp_json["LL"]["value"]
-                    and "validUntil" in resp_json["LL"]["value"]
-                ):
-                    self._token.token = resp_json["LL"]["value"]["token"]
-                    self._token.valid_until = resp_json["LL"]["value"]["validUntil"]
-                    self._token.hash_alg = key_and_salt.hash_alg
+        response = LLResponse(message.message)
+        self._token.token = response.value["token"]
+        self._token.valid_until = response.value["validUntil"]
+        self._token.hash_alg = key_and_salt.hash_alg
 
         if not self._token.save():
             return ERROR_VALUE
@@ -689,18 +651,10 @@ class LoxAPI:
 
 
 class LxJsonKeySalt:
-    def __init__(self):
-        self.key = None
-        self.salt = None
-        self.response = None
-        self.hash_alg = None
-
-    def read_user_salt_response(self, response):
-        js = json.loads(response, strict=False)
-        value = js["LL"]["value"]
-        self.key = value["key"]
-        self.salt = value["salt"]
-        self.hash_alg = value.get("hashAlg", "SHA1")
+    def __init__(self, key=None, salt=None, hash_alg=None):
+        self.key = key
+        self.salt = salt
+        self.hash_alg = hash_alg or "SHA1"
 
 
 Salt = namedtuple("Salt", ["value", "is_new", "previous"])
