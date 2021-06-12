@@ -8,7 +8,7 @@ miniserver.
 
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pyloxone-api?style=flat-square)
 ![PyPI - License](https://img.shields.io/pypi/l/pyloxone-api?style=flat-square)
-[![PyPI](https://img.shields.io/pypi/v/pyloxone-api?style=flat-square)](https://pypi.python.org/pypi/pyloxone/)
+[![PyPI](https://img.shields.io/pypi/v/pyloxone-api?style=flat-square)](https://pypi.python.org/pypi/pyloxone-api/)
  
  
  
@@ -30,14 +30,13 @@ for code formatting, and [Pytest](https://pytest.org) for testing.
     > poetry install
     ```
 
-* Create a shell in the virtual environment:
+* Activate the virtual environment and create a shell:
     ```shell
     > poetry shell
     ```
 
-* To test, run `pytest`:
+* To test, make sure the virtual environment is activiated, and run `pytest`:
     ```shell
-    > poetry shell
     > pytest
     ```
 
