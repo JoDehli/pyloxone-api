@@ -23,7 +23,6 @@ TOKEN_REFRESH_RETRY_COUNT = 5
 TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY = 24 * 60 * 60  # 1 day
 
 
-
 LOXAPPPATH = "/data/LoxAPP3.json"
 
 CMD_GET_PUBLIC_KEY = "jdev/sys/getPublicKey"
@@ -40,5 +39,4 @@ CMD_ENABLE_UPDATES = "jdev/sps/enablebinstatusupdate"
 CMD_GET_VISUAL_PASSWD = "jdev/sys/getvisusalt/"
 
 DEFAULT_TOKEN_PERSIST_NAME = "lox_token.cfg"
-ERROR_VALUE = -1
 LOX_CONFIG = "loxconfig"

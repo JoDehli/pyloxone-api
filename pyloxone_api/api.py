@@ -42,7 +42,6 @@ from .const import (
     CMD_REQUEST_TOKEN,
     CMD_REQUEST_TOKEN_JSON_WEB,
     DEFAULT_TOKEN_PERSIST_NAME,
-    ERROR_VALUE,
     IV_BYTES,
     KEEP_ALIVE_PERIOD,
     LOXAPPPATH,
@@ -175,7 +174,7 @@ class LoxAPI:
             raise LoxoneRequestError(exc) from None
         except LoxoneHTTPStatusError as exc:
             _LOGGER.error(exc)
-            raise
+            raise LoxoneHTTPStatusError(exc) from None
 
         else:
             return
@@ -263,15 +262,10 @@ class LoxAPI:
                 await self.start()
                 break
 
-    # https://github.com/aio-libs/aiohttp/issues/754
     async def stop(self):
-        try:
-            self._state = "STOPPING"
-            if not self._ws.closed:
-                await self._ws.close()
-            return 1
-        except:
-            return -1
+        self._state = "STOPPING"
+        if not self._ws.closed:
+            await self._ws.close()
 
     async def _keep_alive(self, second):
         while True:
@@ -344,7 +338,7 @@ class LoxAPI:
             _LOGGER.debug("generate_session_key successfully...")
         except ValueError as exc:
             _LOGGER.error(f"Error generating session key: {exc}")
-            raise LoxoneException(exc)
+            raise LoxoneException(exc) from None
 
         # Exchange keys
 
@@ -372,15 +366,15 @@ class LoxAPI:
                 )
         except wslib.WebSocketException as exc:
             _LOGGER.error("Unable to open websocket")
-            raise LoxoneException(f"Unable to open websocket: {exc}")
+            raise LoxoneException("Unable to open websocket") from exc
 
         # Pass the session key to the miniserver
         await self._ws.send(f"{CMD_KEY_EXCHANGE}{session_key}")
 
         message = await self._ws.recv_message()
         if message.message_type is not MessageType.TEXT or message.code != 200:
-            _LOGGER.debug("error by getting the session key response...")
-            return ERROR_VALUE
+            _LOGGER.error("Error in getting a session key response...")
+            raise LoxoneException("Error in getting a session key response")
 
         self._encryption_ready = True
 
@@ -395,19 +389,17 @@ class LoxAPI:
         else:
             _LOGGER.debug("error token read")
         if not loaded or (self._token.seconds_to_expire() < 300):
-            res = await self._acquire_token()
+            await self._acquire_token()
         else:
-            res = await self._use_token()
+            try:
+                await self._use_token()
             # Delete old token
-            if res is ERROR_VALUE:
+            except Exception:
                 self._token.delete()
                 _LOGGER.debug(
                     "Old Token found and deleted. Please restart to acquire new token."
                 )
-                return ERROR_VALUE
-
-        if res is ERROR_VALUE:
-            return ERROR_VALUE
+                raise
 
         if self._ws.closed:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
@@ -454,7 +446,7 @@ class LoxAPI:
                     message.message_type, json.dumps(parsed_data, indent=2)
                 )
             )
-        except:
+        except TypeError:
             pass
 
         # Visual hash and key response
@@ -482,8 +474,6 @@ class LoxAPI:
 
     async def _use_token(self):
         token_hash = await self._hash_token()
-        if token_hash is ERROR_VALUE:
-            return ERROR_VALUE
         command = f"{CMD_AUTH_WITH_TOKEN}{token_hash}/{self._user}"
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
@@ -491,42 +481,39 @@ class LoxAPI:
         if message.message_type is MessageType.TEXT and message.code == 200:
             self._token.valid_until = message.value["validUntil"]
             return True
-        return ERROR_VALUE
+        raise LoxoneException(f"Authentication error: {message}")
 
     async def _hash_token(self):
-        try:
-            command = f"{CMD_GET_KEY}"
-            enc_command = self._encrypt(command)
-            await self._ws.send(enc_command)
-            message = await self._ws.recv_message()
-            if message.message_type is MessageType.TEXT:
+        command = f"{CMD_GET_KEY}"
+        enc_command = self._encrypt(command)
+        await self._ws.send(enc_command)
+        message = await self._ws.recv_message()
+        if message.message_type is MessageType.TEXT:
 
-                key = message.value
-                if key != "":
-                    if self._token.hash_alg == "SHA1":
-                        digester = HMAC.new(
-                            bytes.fromhex(key),
-                            self._token.token.encode("utf-8"),
-                            SHA1,
-                        )
-                    elif self._token.hash_alg == "SHA256":
-                        digester = HMAC.new(
-                            bytes.fromhex(key),
-                            self._token.token.encode("utf-8"),
-                            SHA256,
-                        )
-                    else:
-                        _LOGGER.error(
-                            "Unrecognised hash algorithm: {}".format(
-                                self._token.hash_alg
-                            )
-                        )
-                        return ERROR_VALUE
+            key = message.value
+            if key != "":
+                if self._token.hash_alg == "SHA1":
+                    digester = HMAC.new(
+                        bytes.fromhex(key),
+                        self._token.token.encode("utf-8"),
+                        SHA1,
+                    )
+                elif self._token.hash_alg == "SHA256":
+                    digester = HMAC.new(
+                        bytes.fromhex(key),
+                        self._token.token.encode("utf-8"),
+                        SHA256,
+                    )
+                else:
+                    _LOGGER.error(
+                        f"Unrecognised hash algorithm: {self._token.hash_alg}"
+                    )
+                    raise LoxoneException(
+                        f"Unrecognised hash algorithm: {self._token.hash_alg}"
+                    )
 
-                    return digester.hexdigest()
-            return ERROR_VALUE
-        except:
-            return ERROR_VALUE
+                return digester.hexdigest()
+        raise LoxoneException("Unexpected message type")
 
     async def _acquire_token(self):
         _LOGGER.debug("acquire_token")
@@ -534,7 +521,7 @@ class LoxAPI:
         enc_command = self._encrypt(command)
 
         if not self._encryption_ready or self._ws is None:
-            return ERROR_VALUE
+            raise LoxoneException("Cannot acquire token")
 
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
@@ -573,9 +560,7 @@ class LoxAPI:
         self._token.valid_until = response.value["validUntil"]
         self._token.hash_alg = key_and_salt.hash_alg
 
-        if not self._token.save():
-            return ERROR_VALUE
-        return True
+        return self._token.save()
 
     def _encrypt(self, command):
         if not self._encryption_ready:
