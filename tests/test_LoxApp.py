@@ -18,12 +18,12 @@ def dummy_miniserver():
 def test_LoxApp_init():
     """Test class initialisation"""
     api = LoxAPI()
-    assert api._host is None
-    assert api._port is None
+    assert api._host == ""
+    assert api._port == 80
     assert api._user is None
     assert api._password is None
     assert api.json is None
-    assert api.version is None
+    assert api.version == ""
     assert api._https_status is None
     assert api._tls_check_hostname is True
     assert api._use_tls is False

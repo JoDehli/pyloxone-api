@@ -6,7 +6,6 @@ import math
 import struct
 import uuid
 from enum import IntEnum
-from typing import Any
 
 from pyloxone_api.exceptions import LoxoneException
 
@@ -16,25 +15,36 @@ class LLResponse:
 
     An LL Response is a json object often returned by a miniserver in response
     to a command. It begins "{"LL": {..." and has a control, code and value
-    keys. This class provides easy access to code (as an integer), value and
-    control attributes (as strings), which should be present in every case. If
-    value has sub-values, it will be returned as a dict instead. Raises
-    ValueError if the response cannot be parsed.
+    keys. This class provides easy access to code (as an integer) and control
+    attributes (as a string), which should be present in every case.
+    LLResponse.value is a string containing the value of the response.
+    LLResponse.as_dict is guaranteed to be a dict, with at least a value key,
+    and if value has sub-values, keys for the sub-values as well.
+
+    Raises ValueError if the response cannot be parsed.
 
     """
 
-    def __init__(self, response: str | bytes) -> None:
+    def __init__(self, response: str | bytes):
         try:
-            parsed = json.loads(response)
+            self._parsed: dict = json.loads(response)
             # Sometimes, Loxone uses "Code", and sometimes "code"
             self.code: int = int(
-                parsed.get("LL", {}).get("code", "")
-                or parsed.get("LL", {}).get("Code", "")
+                self._parsed.get("LL", {}).get("code", "")
+                or self._parsed.get("LL", {}).get("Code", "")
             )
-            self.value: dict[str, str] | str = parsed["LL"]["value"]
-            self.control: str = parsed["LL"]["control"]
+            self.control: str = self._parsed["LL"]["control"]
+            self.value: str = str(self._parsed["LL"]["value"])
         except (ValueError, KeyError, TypeError) as exc:
             raise ValueError(exc)
+
+    @property
+    def value_as_dict(self) -> dict:
+        d = self._parsed["LL"]["value"]
+        retval = {"value": self.value}
+        if isinstance(d, dict):
+            return {**retval, **d}
+        return retval
 
 
 class MessageType(IntEnum):
@@ -52,7 +62,7 @@ class MessageType(IntEnum):
 
 
 class MessageHeader:
-    def __init__(self, header: bytes) -> None:
+    def __init__(self, header: bytes):
         # From the Loxone API docs, the header is as follows
         # typedef struct {
         #   BYTE cBinType;     // fix 0x03
@@ -79,25 +89,25 @@ class BaseMessage:
 
     message_type = MessageType.UNKNOWN
 
-    def __init__(self, message: bytes) -> None:
-        self.message: bytes = message
+    def __init__(self, message: bytes | str):
+        self.message = message
         # For the base class, the dict is the message
-        self._dict = message
 
-    def as_dict(self) -> Any:
+    def as_dict(self) -> dict:
         """Return the contents of the message as a dict"""
-        return self._dict
+        return {}
 
 
 class TextMessage(BaseMessage):
     message_type = MessageType.TEXT
 
-    def __init__(self, message: bytes) -> None:
+    def __init__(self, message: bytes | str):
         super().__init__(message)
         ll_message = LLResponse(message)
         self.code = ll_message.code
         self.control = ll_message.control
         self.value = ll_message.value
+        self.value_as_dict = ll_message.value_as_dict
 
 
 class BinaryFile(BaseMessage):
@@ -149,10 +159,10 @@ class TextStatesTable(BaseMessage):
         event_dict = {}
         start = 0
 
-        def get_text(message, start, offset):
+        def get_text(message: bytes, start: int, offset: int) -> int:
             first = start
             second = start + offset
-            event_uuid = uuid.UUID(bytes_le=self.message[first:second])
+            event_uuid = uuid.UUID(bytes_le=self.message[first:second])  # type: ignore
             first += offset
             second += offset
 
@@ -165,7 +175,7 @@ class TextStatesTable(BaseMessage):
                 icon_uuid_fields[4],
             )
 
-            icon_uuid = uuid.UUID(bytes_le=self.message[first:second])
+            icon_uuid = uuid.UUID(bytes_le=self.message[first:second])  # type: ignore
             icon_uuid_fields = icon_uuid.urn.replace("urn:uuid:", "").split("-")
 
             first = second
@@ -180,6 +190,8 @@ class TextStatesTable(BaseMessage):
             event_dict[uuidstr] = message_str.decode("utf-8")
             return start
 
+        if not isinstance(self.message, bytes):
+            raise LoxoneException("Expected bytes table, got str")
         while start < len(self.message):
             start = get_text(self.message, start, 16)
         return event_dict
@@ -195,10 +207,8 @@ class DaytimerStatesTable(BaseMessage):
 
 class OutOfServiceIndicator(BaseMessage):
     message_type = MessageType.OUT_OF_SERVICE
-
     # There can be no such message. If an out-of-service header is sent, the
     # miniserver will close the connection before sending a message.
-    pass
 
 
 class Keepalive(BaseMessage):
@@ -220,7 +230,7 @@ def parse_header(header: bytes) -> MessageHeader:
     return MessageHeader(header)
 
 
-def parse_message(message: bytes, message_type: int) -> BaseMessage:
+def parse_message(message: bytes | str, message_type: int) -> BaseMessage:
     """Return an instance of the appropriate BaseMessage subclass"""
     for klass in BaseMessage.__subclasses__():
         if klass.message_type == message_type:

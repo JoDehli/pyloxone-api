@@ -4,39 +4,44 @@ Loxone constants
 For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/pyloxone-api
 """
+from __future__ import annotations
+
+from typing import Final
+
+
 # Loxone constants
 
 
-TIMEOUT = 10
-KEEP_ALIVE_PERIOD = 240
+TIMEOUT: Final = 10
+KEEP_ALIVE_PERIOD: Final = 240
 
-IV_BYTES = 16
-AES_KEY_SIZE = 32
+IV_BYTES: Final = 16
+AES_KEY_SIZE: Final = 32
 
-SALT_BYTES = 16
-SALT_MAX_AGE_SECONDS = 60 * 60
-SALT_MAX_USE_COUNT = 30
+SALT_BYTES: Final = 16
+SALT_MAX_AGE_SECONDS: Final = 60 * 60
+SALT_MAX_USE_COUNT: Final = 30
 
-TOKEN_PERMISSION = 4  # 2=web, 4=app
-TOKEN_REFRESH_RETRY_COUNT = 5
+TOKEN_PERMISSION: Final = 4  # 2=web, 4=app
+TOKEN_REFRESH_RETRY_COUNT: Final = 5
 # token will be refreshed 1 day before its expiration date
-TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY = 24 * 60 * 60  # 1 day
+TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = 24 * 60 * 60  # 1 day
 
 
-LOXAPPPATH = "/data/LoxAPP3.json"
+LOXAPPPATH: Final = "/data/LoxAPP3.json"
 
-CMD_GET_PUBLIC_KEY = "jdev/sys/getPublicKey"
-CMD_KEY_EXCHANGE = "jdev/sys/keyexchange/"
-CMD_GET_KEY_AND_SALT = "jdev/sys/getkey2/"
-CMD_REQUEST_TOKEN = "jdev/sys/gettoken/"
-CMD_REQUEST_TOKEN_JSON_WEB = "jdev/sys/getjwt/"
-CMD_GET_KEY = "jdev/sys/getkey"
-CMD_AUTH_WITH_TOKEN = "authwithtoken/"
-CMD_REFRESH_TOKEN = "jdev/sys/refreshtoken/"
-CMD_REFRESH_TOKEN_JSON_WEB = "jdev/sys/refreshjwt/"
-CMD_ENCRYPT_CMD = "jdev/sys/enc/"
-CMD_ENABLE_UPDATES = "jdev/sps/enablebinstatusupdate"
-CMD_GET_VISUAL_PASSWD = "jdev/sys/getvisusalt/"
+CMD_GET_PUBLIC_KEY: Final = "jdev/sys/getPublicKey"
+CMD_KEY_EXCHANGE: Final = "jdev/sys/keyexchange/"
+CMD_GET_KEY_AND_SALT: Final = "jdev/sys/getkey2/"
+CMD_REQUEST_TOKEN: Final = "jdev/sys/gettoken/"
+CMD_REQUEST_TOKEN_JSON_WEB: Final = "jdev/sys/getjwt/"
+CMD_GET_KEY: Final = "jdev/sys/getkey"
+CMD_AUTH_WITH_TOKEN: Final = "authwithtoken/"
+CMD_REFRESH_TOKEN: Final = "jdev/sys/refreshtoken/"
+CMD_REFRESH_TOKEN_JSON_WEB: Final = "jdev/sys/refreshjwt/"
+CMD_ENCRYPT_CMD: Final = "jdev/sys/enc/"
+CMD_ENABLE_UPDATES: Final = "jdev/sps/enablebinstatusupdate"
+CMD_GET_VISUAL_PASSWD: Final = "jdev/sys/getvisusalt/"
 
-DEFAULT_TOKEN_PERSIST_NAME = "lox_token.cfg"
-LOX_CONFIG = "loxconfig"
+DEFAULT_TOKEN_PERSIST_NAME: Final = "lox_token.cfg"
+LOX_CONFIG: Final = "loxconfig"
