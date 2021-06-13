@@ -25,17 +25,15 @@ _LOGGER.addHandler(logging.StreamHandler())
 # _LOGGER2.addHandler(logging.StreamHandler())
 
 
-async def main():
+async def main() -> None:
 
     api = LoxAPI(
-        user=sys.argv[1], password=sys.argv[2], host=sys.argv[3], port=sys.argv[4]
+        user=sys.argv[1], password=sys.argv[2], host=sys.argv[3], port=int(sys.argv[4])
     )
 
     await api.getJson()
     await api.async_init()
     await api.start()
-
-    return
 
 
 if __name__ == "__main__":

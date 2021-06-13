@@ -2,11 +2,14 @@
 
 This class will log messages sent and received, at the DEBUG level.
 """
+from __future__ import annotations
+
 import logging
 
 from websockets.client import WebSocketClientProtocol
 
-from pyloxone_api.message import MessageType, parse_header, parse_message
+from pyloxone_api.exceptions import LoxoneException
+from pyloxone_api.message import BaseMessage, MessageType, parse_header, parse_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,17 +18,17 @@ class Websocket(WebSocketClientProtocol):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    async def recv(self):
+    async def recv(self) -> str | bytes:
         result = await super().recv()
-        _LOGGER.debug(f"Received: {result[:80]}")
+        _LOGGER.debug(f"Received: {result[:80]!r}")
         return result
 
-    async def send(self, msg):
+    async def send(self, msg) -> None:
         result = await super().send(msg)
         _LOGGER.debug(f"Sent:{msg}")
         return result
 
-    async def recv_message(self):
+    async def recv_message(self) -> BaseMessage:
         """Receive a header and message from the miniserver""
 
         Return an instance of the appropriate message.BaseMessage subclass
@@ -55,12 +58,17 @@ class Websocket(WebSocketClientProtocol):
         # handled in their own coroutine
 
         header_data = await self.recv()
-        _LOGGER.debug(f"Parsing header {header_data[:80]}")
+        if not isinstance(header_data, bytes):
+            raise LoxoneException(
+                f"Expected a bytes header, but received {header_data}"
+            )
+        _LOGGER.debug(f"Parsing header {header_data[:80]!r}")
         header = parse_header(header_data)
         if header.message_type is MessageType.OUT_OF_SERVICE:
-            return None  # perhaps we should raise an exception here
+            raise LoxoneException("Miniserver is out of service")
         # get the message body
         message_data = await self.recv()
-        _LOGGER.debug(f"Parsing message {message_data[:80]}")
+
+        _LOGGER.debug(f"Parsing message {message_data[:80]!r}")
         message = parse_message(message_data, header.message_type)
         return message

@@ -27,6 +27,11 @@ class Test_LL_Response:
         '"value": "my hovercraft is full of eels",'
         '"Code": "200"}}'
     )
+    NESTED_LL_RESPONSE = (
+        '{"LL": { "control": "dev/sys/getPublicKey", '
+        '"value": { "text": "my hovercraft is full of eels"} ,'
+        '"Code": "200"}}'
+    )
     BAD_LL_RESPONSE_NOT_INT = (
         '{"LL": { "control": "dev/sys/getPublicKey", '
         '"value": "my hovercraft is full of eels",'
@@ -41,6 +46,18 @@ class Test_LL_Response:
         assert response.control == "dev/sys/getPublicKey"
         assert response.code == 200
         assert response.value == "my hovercraft is full of eels"
+        assert response.value_as_dict == {"value": "my hovercraft is full of eels"}
+
+    def test_LL_nested_response(self):
+        response = LLResponse(self.NESTED_LL_RESPONSE)
+        assert response.control == "dev/sys/getPublicKey"
+        assert response.code == 200
+        assert response.value == "{'text': 'my hovercraft is full of eels'}"
+        assert response.value_as_dict == {
+            "value": "{'text': 'my hovercraft is full of eels'}",
+            "text": "my hovercraft is full of eels",
+        }
+        assert response.value_as_dict["text"] == "my hovercraft is full of eels"
 
     @pytest.mark.parametrize(
         "response", [BAD_LL_RESPONSE_NOT_INT, BAD_LL_RESPONSE_NO_VALUE]
