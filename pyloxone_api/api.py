@@ -436,6 +436,10 @@ class LoxAPI:
             _LOGGER.debug("Cancelling .....")
             raise
         except Exception as exc:
+            # Normally closed code. Should not raise any error and should not reconnect
+            if self._ws.close_code == 1000:
+                return
+
             _LOGGER.exception(exc)
             await asyncio.sleep(5)
             if self._ws.closed and self._ws.close_code in [4004, 4005]:
