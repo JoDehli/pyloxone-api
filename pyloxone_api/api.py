@@ -87,6 +87,7 @@ class LoxAPI:
         self._ws: Websocket
         self._encryption_ready: bool = False
         self._visual_hash: LxJsonKeySalt
+        self._local : bool = False
 
         self.message_call_back: Callable[[dict], Any] | None = None
         self.connect_retries: int = 20
@@ -125,11 +126,16 @@ class LoxAPI:
         # the miniserver will cause an exception to be raised, via the event_hook
         scheme = "https" if self._use_tls else "http"
         auth = None
+
+        if self._port == '80':
+            _base_url = f"{scheme}://{self._host}"
+        else:
+            _base_url = f"{scheme}://{self._host}:{self._port}"
         if self._user is not None and self._password is not None:
             auth = (self._user, self._password)
         client = httpx.AsyncClient(
             auth=auth,
-            base_url=f"{scheme}://{self._host}:{self._port}",
+            base_url=_base_url,
             verify=self._tls_check_hostname,
             timeout=TIMEOUT,
             event_hooks={"response": [self._raise_if_not_200]},
@@ -146,6 +152,16 @@ class LoxAPI:
                 [int(x) for x in self.version.split(".")] if self.version else []
             )
             self.snr = value.get("snr")
+            self._local = value.get("local", True)
+            if not self._local:
+                _base_url = str(api_resp.url).replace("/jdev/cfg/apiKey", "")
+                client = httpx.AsyncClient(
+                    auth=auth,
+                    base_url=_base_url,
+                    verify=self._tls_check_hostname,
+                    timeout=TIMEOUT,
+                    event_hooks={"response": [self._raise_if_not_200]},
+                )
 
             # Get the structure file
             loxappdata = await client.get(LOXAPPPATH)
