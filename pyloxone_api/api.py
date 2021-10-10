@@ -87,7 +87,7 @@ class LoxAPI:
         self._ws: Websocket
         self._encryption_ready: bool = False
         self._visual_hash: LxJsonKeySalt
-        self._local : bool = False
+        self._local: bool = False
 
         self.message_call_back: Callable[[dict], Any] | None = None
         self.connect_retries: int = 20
@@ -127,7 +127,7 @@ class LoxAPI:
         scheme = "https" if self._use_tls else "http"
         auth = None
 
-        if self._port == '80':
+        if self._port == "80":
             _base_url = f"{scheme}://{self._host}"
         else:
             _base_url = f"{scheme}://{self._host}:{self._port}"
@@ -245,7 +245,11 @@ class LoxAPI:
                     await self._ws.send(enc_command)
                     message = await self._ws.recv_message()
 
-                if isinstance(message, TextMessage) and message.code == 200 and "validUntil" in message.value_as_dict:
+                if (
+                    isinstance(message, TextMessage)
+                    and message.code == 200
+                    and "validUntil" in message.value_as_dict
+                ):
                     self._token.valid_until = message.value_as_dict["validUntil"]
                 _LOGGER.debug(
                     f"Seconds before refresh: {self._token.seconds_to_expire()}"
@@ -479,7 +483,12 @@ class LoxAPI:
             pass
 
         # Visual hash and key response
-        if isinstance(message, TextMessage) and message.code == 200 and "key" in message.value_as_dict and "salt" in message.value_as_dict:
+        if (
+            isinstance(message, TextMessage)
+            and message.code == 200
+            and "key" in message.value_as_dict
+            and "salt" in message.value_as_dict
+        ):
             key_and_salt = LxJsonKeySalt(
                 message.value_as_dict["key"],
                 message.value_as_dict["salt"],
@@ -507,7 +516,11 @@ class LoxAPI:
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
-        if isinstance(message, TextMessage) and message.code == 200 and "validUntil" in message.value_as_dict:
+        if (
+            isinstance(message, TextMessage)
+            and message.code == 200
+            and "validUntil" in message.value_as_dict
+        ):
             self._token.valid_until = message.value_as_dict["validUntil"]
             return True
         raise LoxoneException(f"Authentication error: {message}")
