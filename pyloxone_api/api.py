@@ -245,12 +245,11 @@ class LoxAPI:
                     await self._ws.send(enc_command)
                     message = await self._ws.recv_message()
 
-                if isinstance(message, TextMessage) and message.code == 200:
+                if isinstance(message, TextMessage) and message.code == 200 and "validUntil" in message.value_as_dict:
                     self._token.valid_until = message.value_as_dict["validUntil"]
                 _LOGGER.debug(
                     f"Seconds before refresh: {self._token.seconds_to_expire()}"
                 )
-
                 self._token.save()
 
     async def start(self) -> None:
@@ -480,7 +479,7 @@ class LoxAPI:
             pass
 
         # Visual hash and key response
-        if isinstance(message, TextMessage) and message.code == 200:
+        if isinstance(message, TextMessage) and message.code == 200 and "key" in message.value_as_dict and "salt" in message.value_as_dict:
             key_and_salt = LxJsonKeySalt(
                 message.value_as_dict["key"],
                 message.value_as_dict["salt"],
@@ -508,7 +507,7 @@ class LoxAPI:
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
-        if isinstance(message, TextMessage) and message.code == 200:
+        if isinstance(message, TextMessage) and message.code == 200 and "validUntil" in message.value_as_dict:
             self._token.valid_until = message.value_as_dict["validUntil"]
             return True
         raise LoxoneException(f"Authentication error: {message}")
@@ -519,7 +518,6 @@ class LoxAPI:
         await self._ws.send(enc_command)
         message = await self._ws.recv_message()
         if isinstance(message, TextMessage):
-
             key = message.value
             if key != "":
                 if self._token.hash_alg == "SHA1":
@@ -557,6 +555,7 @@ class LoxAPI:
         message = await self._ws.recv_message()
         if not isinstance(message, TextMessage):
             raise LoxoneException("Unexpected message type")
+
         key_and_salt = LxJsonKeySalt(
             message.value_as_dict["key"],
             message.value_as_dict["salt"],
