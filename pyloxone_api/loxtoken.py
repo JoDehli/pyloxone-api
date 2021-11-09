@@ -22,13 +22,15 @@ class LoxToken:
         self.token_dir = token_dir
         self.token_filename = token_filename
 
-    def seconds_to_expire(self) -> float:
+    def seconds_to_expire(self, valid_until: int=None) -> int:
         # Loxone epoch is 1.1.2009
         loxone_epoch = datetime(2009, 1, 1, 0, 0)
         # current number of seconds since epoch
         current_seconds_since_epoch = (datetime.now() - loxone_epoch).total_seconds()
         # work out how many seconds are left
-        return self.valid_until - current_seconds_since_epoch
+        if valid_until:
+            return int(valid_until - current_seconds_since_epoch)
+        return int(self.valid_until - current_seconds_since_epoch)
 
     def load(self) -> bool:
         persist_token = os.path.join(self.token_dir, self.token_filename)

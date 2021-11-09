@@ -25,7 +25,8 @@ SALT_MAX_USE_COUNT: Final = 30
 TOKEN_PERMISSION: Final = 4  # 2=web, 4=app
 TOKEN_REFRESH_RETRY_COUNT: Final = 5
 # token will be refreshed 1 day before its expiration date
-TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = 24 * 60 * 60  # 1 day
+TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = 24 * 60 * 60  # 1 day --> Old. delete if new way is successful
+MAX_REFRESH_DELAY: Final =  60 * 60 * 24 # 1 day#S
 
 
 LOXAPPPATH: Final = "/data/LoxAPP3.json"

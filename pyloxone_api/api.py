@@ -52,6 +52,7 @@ from .const import (
     SALT_MAX_USE_COUNT,
     TIMEOUT,
     TOKEN_PERMISSION,
+    MAX_REFRESH_DELAY
 )
 from .exceptions import LoxoneException, LoxoneHTTPStatusError, LoxoneRequestError
 from .loxtoken import LoxToken
@@ -206,64 +207,60 @@ class LoxAPI:
 
     async def _refresh_token(self) -> NoReturn:
         while True:
-            seconds_to_refresh = self._token.seconds_to_expire()
+            seconds_to_refresh = min(self._token.seconds_to_expire(), MAX_REFRESH_DELAY)
             await asyncio.sleep(seconds_to_refresh)
-            command = f"{CMD_GET_KEY}"
-            enc_command = self._encrypt(command)
-            # We need exlusive control of the websocket. Without this, the main
-            # message receiving coroutine could be scheduled whilst we are
-            # waiting for the refresh response, and it would intercept it.
             async with self._socket_lock:
-                await self._ws.send(enc_command)
-                message = await self._ws.recv_message()
-            response = LLResponse(message.message)
-            key = response.value
-            token_hash = None
-            if key != "":
-                if self._version < [12, 0]:
-                    digester = HMAC.new(
-                        bytes.fromhex(key),
-                        self._token.token.encode("utf-8"),
-                        SHA1,
-                    )
-                else:
-                    digester = HMAC.new(
-                        bytes.fromhex(key),
-                        self._token.token.encode("utf-8"),
-                        SHA256,
-                    )
-                token_hash = digester.hexdigest()
-
-            if token_hash is not None:
-                if self._version < [10, 2]:
-                    command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
-                else:
-                    command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
-
-                async with self._socket_lock:
+                token_hash  = await self._hash_token()
+                if token_hash is not None:
+                    if self._version < [10, 2]:
+                        command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
+                    else:
+                        command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
+                
                     enc_command = self._encrypt(command)
                     await self._ws.send(enc_command)
                     message = await self._ws.recv_message()
+                    if (
+                        isinstance(message, TextMessage)
+                        and message.code == 200
+                        and "validUntil" in message.value_as_dict
+                    ):
+                        self._token.valid_until = message.value_as_dict["validUntil"]
+                        _LOGGER.debug(
+                            f"Seconds before refresh: {self._token.seconds_to_expire()}"
+                        )
+                        self._token.save()
+                
+                        
 
-                if (
-                    isinstance(message, TextMessage)
-                    and message.code == 200
-                    and "validUntil" in message.value_as_dict
-                ):
-                    self._token.valid_until = message.value_as_dict["validUntil"]
-                _LOGGER.debug(
-                    f"Seconds before refresh: {self._token.seconds_to_expire()}"
-                )
-                self._token.save()
-
+    
+    async def _check_token(self) -> None:
+        while True:
+            await asyncio.sleep(360)
+            
+            async with self._socket_lock:
+                token_hash  = await self._hash_token()
+                command = f"jdev/sys/checktoken/{token_hash}/{self._user}"
+                enc_command = self._encrypt(command)
+                await self._ws.send(enc_command)
+                message = await self._ws.recv_message()
+                if not isinstance(message, TextMessage) or message.code != 200:
+                    _LOGGER.error("Error in getting a session key response...")
+                    raise LoxoneException("Error check token still valid")
+                _LOGGER.debug(f"Token is verified for {self._user}.")
+                seconds = self._token.seconds_to_expire(message.value_as_dict['validUntil'])
+  
+    
     async def start(self) -> None:
 
         consumer_task = self._ws_listen()
         keep_alive_task = self._keep_alive(KEEP_ALIVE_PERIOD)
         refresh_token_task = self._refresh_token()
+        check_if_token_valid = self._check_token()
 
         _, pending = await asyncio.wait(
-            [consumer_task, keep_alive_task, refresh_token_task],
+            [consumer_task, keep_alive_task, refresh_token_task,
+            check_if_token_valid],
             return_when=asyncio.FIRST_COMPLETED,
         )
         # The first task has completed. Cancel the others
