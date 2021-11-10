@@ -47,12 +47,12 @@ from .const import (
     IV_BYTES,
     KEEP_ALIVE_PERIOD,
     LOXAPPPATH,
+    MAX_REFRESH_DELAY,
     SALT_BYTES,
     SALT_MAX_AGE_SECONDS,
     SALT_MAX_USE_COUNT,
     TIMEOUT,
     TOKEN_PERMISSION,
-    MAX_REFRESH_DELAY
 )
 from .exceptions import LoxoneException, LoxoneHTTPStatusError, LoxoneRequestError
 from .loxtoken import LoxToken
@@ -205,62 +205,60 @@ class LoxAPI:
             # Async httpx client must always be closed
             await client.aclose()
 
-    async def _refresh_token(self) -> NoReturn:
+    async def _refresh(self) -> NoReturn:
+        token_hash = await self._hash_token()
+        if token_hash is not None:
+            if self._version < [10, 2]:
+                command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
+            else:
+                command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
+
+            enc_command = self._encrypt(command)
+            await self._ws.send(enc_command)
+            message = await self._ws.recv_message()
+            if (
+                isinstance(message, TextMessage)
+                and message.code == 200
+                and "validUntil" in message.value_as_dict
+            ):
+                self._token.valid_until = message.value_as_dict["validUntil"]
+                _LOGGER.debug(
+                    f"Seconds before refresh: {self._token.seconds_to_expire()}"
+                )
+                self._token.save()
+
+    async def _check_refresh_token(self) -> NoReturn:
         while True:
             seconds_to_refresh = min(self._token.seconds_to_expire(), MAX_REFRESH_DELAY)
             await asyncio.sleep(seconds_to_refresh)
             async with self._socket_lock:
-                token_hash  = await self._hash_token()
-                if token_hash is not None:
-                    if self._version < [10, 2]:
-                        command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._user}"
-                    else:
-                        command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._user}"
-                
-                    enc_command = self._encrypt(command)
-                    await self._ws.send(enc_command)
-                    message = await self._ws.recv_message()
-                    if (
-                        isinstance(message, TextMessage)
-                        and message.code == 200
-                        and "validUntil" in message.value_as_dict
-                    ):
-                        self._token.valid_until = message.value_as_dict["validUntil"]
-                        _LOGGER.debug(
-                            f"Seconds before refresh: {self._token.seconds_to_expire()}"
-                        )
-                        self._token.save()
-                
-                        
+                await self._refresh()
 
-    
-    async def _check_token(self) -> None:
-        while True:
-            await asyncio.sleep(360)
-            
-            async with self._socket_lock:
-                token_hash  = await self._hash_token()
-                command = f"jdev/sys/checktoken/{token_hash}/{self._user}"
-                enc_command = self._encrypt(command)
-                await self._ws.send(enc_command)
-                message = await self._ws.recv_message()
-                if not isinstance(message, TextMessage) or message.code != 200:
-                    _LOGGER.error("Error in getting a session key response...")
-                    raise LoxoneException("Error check token still valid")
-                _LOGGER.debug(f"Token is verified for {self._user}.")
-                seconds = self._token.seconds_to_expire(message.value_as_dict['validUntil'])
-  
-    
+    async def _check_token_still_valid(self) -> None:
+        token_hash = await self._hash_token()
+        command = f"jdev/sys/checktoken/{token_hash}/{self._user}"
+        enc_command = self._encrypt(command)
+        await self._ws.send(enc_command)
+        message = await self._ws.recv_message()
+        if isinstance(message, TextMessage) and message.code == 200:
+            _LOGGER.debug(f"Token is verified for {self._user}.")
+        elif isinstance(message, TextMessage) and message.code == 401:
+            raise LoxoneException("401 - UNAUTHORIZED for check token.")
+        elif isinstance(message, TextMessage) and message.code == 400:
+            raise LoxoneException("400 - BAD_REQUEST for check token.")
+        # Like an 401 but that when the token is no longer valid.
+        elif isinstance(message, TextMessage) and message.code == 477:
+            await self._refresh()
+        else:
+            raise LoxoneException("No token!")
+
     async def start(self) -> None:
-
         consumer_task = self._ws_listen()
         keep_alive_task = self._keep_alive(KEEP_ALIVE_PERIOD)
-        refresh_token_task = self._refresh_token()
-        check_if_token_valid = self._check_token()
+        refresh_token_task = self._check_refresh_token()
 
         _, pending = await asyncio.wait(
-            [consumer_task, keep_alive_task, refresh_token_task,
-            check_if_token_valid],
+            [consumer_task, keep_alive_task, refresh_token_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
         # The first task has completed. Cancel the others
@@ -297,6 +295,7 @@ class LoxAPI:
                     await self._ws.send("keepalive")
                     response = await self._ws.recv()  # the keepalive response
                     _LOGGER.debug(f"Keepalive response: {response!r}")
+                    await self._check_token_still_valid()
 
     async def _send_secured(self, device_uuid: str, value: Any, code: Any) -> None:
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"

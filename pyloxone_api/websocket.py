@@ -69,6 +69,6 @@ class Websocket(WebSocketClientProtocol):
         # get the message body
         message_data = await self.recv()
 
-        _LOGGER.debug(f"Parsing message {message_data[:80]!r}")
+        _LOGGER.debug(f"Parsing message {message_data[:80]!r} ({header.message_type})")
         message = parse_message(message_data, header.message_type)
         return message
