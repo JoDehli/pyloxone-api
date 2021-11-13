@@ -51,6 +51,7 @@ from .const import (
     SALT_BYTES,
     SALT_MAX_AGE_SECONDS,
     SALT_MAX_USE_COUNT,
+    THROTTLE_CHECK_TOKEN_STILL_VALID,
     TIMEOUT,
     TOKEN_PERMISSION,
 )
@@ -288,14 +289,19 @@ class LoxAPI:
             await self._ws.close()
 
     async def _keep_alive(self, second: int) -> NoReturn:
+        count = 0
         while True:
             await asyncio.sleep(second)
             if self._encryption_ready:
                 async with self._socket_lock:
+                    count +=1
                     await self._ws.send("keepalive")
                     response = await self._ws.recv()  # the keepalive response
                     _LOGGER.debug(f"Keepalive response: {response!r}")
-                    await self._check_token_still_valid()
+                    if count >= THROTTLE_CHECK_TOKEN_STILL_VALID: # Throttle the check_still_valid
+                        _LOGGER.debug(f"Check if token still valid.")
+                        await self._check_token_still_valid()
+                        count = 0
 
     async def _send_secured(self, device_uuid: str, value: Any, code: Any) -> None:
         pwd_hash_str = f"{code}:{self._visual_hash.salt}"

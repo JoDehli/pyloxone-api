@@ -12,6 +12,7 @@ from typing import Final
 # Loxone constants
 TIMEOUT: Final = 10
 KEEP_ALIVE_PERIOD: Final = 240
+THROTTLE_CHECK_TOKEN_STILL_VALID: Final = 180   # 180 * KEEP_ALIVE_PERIOD -> 43200 sek -> 12 h
 
 IV_BYTES: Final = 16
 AES_KEY_SIZE: Final = 32
