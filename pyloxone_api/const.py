@@ -10,10 +10,9 @@ from typing import Final
 
 
 # Loxone constants
-
-
 TIMEOUT: Final = 10
 KEEP_ALIVE_PERIOD: Final = 240
+THROTTLE_CHECK_TOKEN_STILL_VALID: Final = 180   # 180 * KEEP_ALIVE_PERIOD -> 43200 sek -> 12 h
 
 IV_BYTES: Final = 16
 AES_KEY_SIZE: Final = 32
@@ -22,10 +21,11 @@ SALT_BYTES: Final = 16
 SALT_MAX_AGE_SECONDS: Final = 60 * 60
 SALT_MAX_USE_COUNT: Final = 30
 
-TOKEN_PERMISSION: Final = 4  # 2=web, 4=app
+TOKEN_PERMISSION: Final = 2  # 2=web, 4=app
 TOKEN_REFRESH_RETRY_COUNT: Final = 5
 # token will be refreshed 1 day before its expiration date
-TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = 24 * 60 * 60  # 1 day
+TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = 24 * 60 * 60  # 1 day --> Old. delete if new way is successful
+MAX_REFRESH_DELAY: Final =  60 * 60 * 24 # 1 day
 
 
 LOXAPPPATH: Final = "/data/LoxAPP3.json"
