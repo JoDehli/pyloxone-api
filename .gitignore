@@ -136,6 +136,8 @@ dmypy.json
 #   but it is not necessary for a library
 poetry.lock
 
+.idea
+
 # Loxone
 lox_token.cfg
 Doku
