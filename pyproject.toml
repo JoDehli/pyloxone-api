@@ -6,7 +6,7 @@ homepage = "https://github.com/JoDehli/pyloxone-api"
 license = "Apache-2.0"
 name = "pyloxone_api"
 repository = "https://github.com/JoDehli/pyloxone-api"
-version = "0.2.2"
+version = "0.2.3"
 # Trove classifiers for PyPI. Licence and Language are set
 # automatically
 classifiers = [
