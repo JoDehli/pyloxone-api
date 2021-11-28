@@ -230,7 +230,7 @@ class LoxAPI:
 
     async def _check_refresh_token(self) -> NoReturn:
         while True:
-            seconds_to_refresh = min(self._token.seconds_to_expire(), MAX_REFRESH_DELAY)
+            seconds_to_refresh = min(self._token.seconds_to_expire()*0.9, MAX_REFRESH_DELAY)
             await asyncio.sleep(seconds_to_refresh)
             async with self._socket_lock:
                 await self._refresh()
