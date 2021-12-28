@@ -6,7 +6,7 @@ pasword to 'admin'
 """
 import pytest
 
-from pyloxone_api import LoxAPI
+from pyloxone_api import Miniserver
 
 # mark all tests in this module as 'online'. They will
 # be skipped unless a --hostname is provided
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.online
 
 @pytest.mark.asyncio
 async def test_online(online_credentials):
-    api = LoxAPI(
+    api = Miniserver(
         user=online_credentials["username"],
         password=online_credentials["password"],
         host=online_credentials["host"],
@@ -24,4 +24,4 @@ async def test_online(online_credentials):
         use_tls=online_credentials["use_tls"],
     )
 
-    await api.getJson()
+    await api._getStructureFile()

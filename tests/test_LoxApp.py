@@ -1,7 +1,7 @@
 import pytest
 
 import pyloxone_api
-from pyloxone_api import LoxAPI
+from pyloxone_api import Miniserver
 from pyloxone_api.api import _SaltMine
 from pyloxone_api.const import LOXAPPPATH
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
@@ -10,14 +10,14 @@ from pyloxone_api.exceptions import LoxoneHTTPStatusError
 @pytest.fixture
 def dummy_miniserver():
     """A dummy LoxApp() with fake credentials"""
-    api = LoxAPI(user="", password="", host="example.com", port=80)
+    api = Miniserver(user="admin", password="password", host="example.com", port=80)
 
     return api
 
 
 def test_LoxApp_init():
     """Test class initialisation"""
-    api = LoxAPI()
+    api = Miniserver()
     assert api._host == ""
     assert api._port == 80
     assert api._user is None
@@ -79,9 +79,9 @@ class Test_get_json:
         """Test http error from server"""
         httpx_mock.add_response(status_code)
         with pytest.raises(LoxoneHTTPStatusError):
-            await dummy_miniserver.getJson()
+            await dummy_miniserver._getStructureFile()
 
-    async def test_LoxApp_getversion(self, httpx_mock, dummy_miniserver):
+    async def test_LoxApp_getmsInfo(self, httpx_mock, dummy_miniserver):
         """Test fetching of https_status, version, json etc"""
         httpx_mock.add_response(
             url="http://example.com/jdev/cfg/apiKey", data=self.API_KEY_RETURN
@@ -93,13 +93,19 @@ class Test_get_json:
             url="http://example.com/jdev/sys/getPublicKey", data=self.PUBLIC_KEY_RETURN
         )
 
-        _ = await dummy_miniserver.getJson()
+        _ = await dummy_miniserver._getStructureFile()
         assert dummy_miniserver.version == "12.0.2.24"
         assert dummy_miniserver._version == [12, 0, 2, 24]
         assert dummy_miniserver.snr == "12:34:56:78:9A:BC"
         assert dummy_miniserver._https_status == 1
         assert dummy_miniserver.json["lastModified"] == "2021-05-11 23:09:38"
         assert dummy_miniserver._public_key != ""
+        assert dummy_miniserver.host == "example.com"
+        assert dummy_miniserver.port == 80
+        assert dummy_miniserver.user == "admin"
+        assert dummy_miniserver.password == "password"
+        assert dummy_miniserver.msInfo.projectName == "MyProject"
+        assert dummy_miniserver.msInfo.roomTitle == "Rooms"
 
 
 def test_salt(monkeypatch):

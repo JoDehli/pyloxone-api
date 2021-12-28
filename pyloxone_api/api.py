@@ -16,7 +16,7 @@ import time
 import urllib.parse
 from base64 import b64decode, b64encode
 from collections import namedtuple
-from typing import Any, Callable, NoReturn
+from typing import Any, Callable, NamedTuple, NoReturn
 
 import httpx
 import websockets as wslib
@@ -61,7 +61,7 @@ from .loxtoken import LoxToken
 _LOGGER = logging.getLogger(__name__)
 
 
-class LoxAPI:
+class Miniserver:
     def __init__(
         self,
         host: str = "",
@@ -106,6 +106,22 @@ class LoxAPI:
         )
         self._socket_lock = asyncio.Lock()
 
+    @property
+    def host(self):
+        return self._host
+
+    @property
+    def port(self):
+        return self._port
+
+    @property
+    def user(self):
+        return self._user
+
+    @property
+    def password(self):
+        return self._password
+
     async def _raise_if_not_200(self, response: httpx.Response) -> None:
         """An httpx event hook, to ensure that http responses other than 200
         raise an exception"""
@@ -121,7 +137,7 @@ class LoxAPI:
                 f"Code {response.status_code}. Miniserver response was {response.text}"
             )
 
-    async def getJson(self):
+    async def _getStructureFile(self):
         """Obtain basic info from the miniserver"""
         # All initial http/https requests are carried out here, for simplicity. They
         # can all use the same httpx.AsyncClient instance. Any non-200 response from
@@ -173,6 +189,12 @@ class LoxAPI:
                 self.json[
                     "softwareVersion"
                 ] = self._version  # FIXME Legacy use only. Need to fix pyloxone
+
+            # Create an msInfo attrribute. Dynamically addwith sub-attributes
+            # representing each member of the msInfo dict.
+            # eg, self.msInfo.msName, self.msInfo.projectName, etc
+            MsInfo = namedtuple("MsInfo", self.json["msInfo"].keys())
+            self.msInfo = MsInfo._make(self.json["msInfo"].values())
 
             # Get the public key
             pk_data = await client.get(CMD_GET_PUBLIC_KEY)
@@ -230,7 +252,9 @@ class LoxAPI:
 
     async def _check_refresh_token(self) -> NoReturn:
         while True:
-            seconds_to_refresh = min(self._token.seconds_to_expire()*0.9, MAX_REFRESH_DELAY)
+            seconds_to_refresh = min(
+                self._token.seconds_to_expire() * 0.9, MAX_REFRESH_DELAY
+            )
             await asyncio.sleep(seconds_to_refresh)
             async with self._socket_lock:
                 await self._refresh()
@@ -252,6 +276,11 @@ class LoxAPI:
             await self._refresh()
         else:
             raise LoxoneException("No token!")
+
+    async def connect(self) -> bool:
+        """Connect to the miniserver"""
+        await self._getStructureFile()
+        return await self._async_init()
 
     async def start(self) -> None:
         consumer_task = self._ws_listen()
@@ -278,7 +307,7 @@ class LoxAPI:
             self._state = "CONNECTING"
             _LOGGER.debug(f"wait for {self.connect_delay} seconds...")
             await asyncio.sleep(self.connect_delay)
-            res = await self.async_init()
+            res = await self._async_init()
             if res is True:
                 await self.start()
                 break
@@ -294,11 +323,13 @@ class LoxAPI:
             await asyncio.sleep(second)
             if self._encryption_ready:
                 async with self._socket_lock:
-                    count +=1
+                    count += 1
                     await self._ws.send("keepalive")
                     response = await self._ws.recv()  # the keepalive response
                     _LOGGER.debug(f"Keepalive response: {response!r}")
-                    if count >= THROTTLE_CHECK_TOKEN_STILL_VALID: # Throttle the check_still_valid
+                    if (
+                        count >= THROTTLE_CHECK_TOKEN_STILL_VALID
+                    ):  # Throttle the check_still_valid
                         _LOGGER.debug(f"Check if token still valid.")
                         await self._check_token_still_valid()
                         count = 0
@@ -348,7 +379,8 @@ class LoxAPI:
         _LOGGER.debug(f"send command: {command}")
         await self._ws.send(command)
 
-    async def async_init(self) -> bool:
+    async def _async_init(self) -> bool:
+        """Initialise cypher and token,  and connect to websocket"""
 
         # Init RSA cipher
         try:
@@ -436,6 +468,12 @@ class LoxAPI:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
             return False
 
+        self._state = "CONNECTED"
+        return True
+
+    async def _ws_listen(self) -> None:
+        """Listen to all commands from the Miniserver."""
+        # tell miniserver to start sending us messages
         command = f"{CMD_ENABLE_UPDATES}"
         enc_command = self._encrypt(command)
         await self._ws.send(enc_command)
@@ -443,12 +481,6 @@ class LoxAPI:
             _LOGGER.debug(f"Connection closed. Reason {self._ws.close_code}")
             return False
         _ = await self._ws.recv_message()
-
-        self._state = "CONNECTED"
-        return True
-
-    async def _ws_listen(self) -> None:
-        """Listen to all commands from the Miniserver."""
         try:
             while True:
 
