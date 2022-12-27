@@ -30,3 +30,6 @@ class MiniserverProtocol(Protocol):
         self, command: str = "", encrypted: bool = False
     ) -> TextMessage:
         ...
+
+    def _hash_token(self) -> str:
+        ...

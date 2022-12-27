@@ -164,8 +164,6 @@ class TokensMixin(MiniserverProtocol):
                 SHA256,
             )
         else:
-            _LOGGER.error(f"Unrecognised hash algorithm: {self._token.hash_alg}")
-            raise LoxoneException(
-                f"Unrecognised hash algorithm: {self._token.hash_alg}"
-            )
+            _LOGGER.error(f"Unrecognised hash algorithm: {self._hash_alg}")
+            raise LoxoneException(f"Unrecognised hash algorithm: {self._hash_alg}")
         return digester.hexdigest()

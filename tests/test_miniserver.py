@@ -18,7 +18,7 @@ def test_Miniserver_init():
     assert api.port == 80
     assert api.user == ""
     assert api.password == ""
-    assert api.version == []
+    assert api._version == ""
     assert api._https_status == 0
     assert api._tls_check_hostname is True
     assert api._use_tls is False

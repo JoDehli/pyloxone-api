@@ -233,7 +233,7 @@ class ConnectorMixin(MiniserverProtocol):
             await self._acquire_token()
         else:
             # Authenticate using the existing token
-            token_hash = await self._hash_token()
+            token_hash = self._hash_token()
             auth_command = f"authwithtoken/{token_hash}/{self._user}"
             message = await self._send_text_command(auth_command, encrypted=True)
             if (

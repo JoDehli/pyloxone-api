@@ -23,5 +23,5 @@ class Websocket(WebSocketClientProtocol):
 
     async def send(self, message: bytes | str) -> None:  # type: ignore[override]
         await super().send(message)
-        _LOGGER.debug(f"Sent:{message}")
+        _LOGGER.debug(f"Sent:{message!r}")
         return

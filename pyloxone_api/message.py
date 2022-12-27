@@ -134,6 +134,7 @@ class ValueStatesTable(BaseMessage):
         start = 0
         end = 24
         for _ in range(int(num)):
+            assert isinstance(self.message, bytes)
             packet = self.message[start:end]
             event_uuid = uuid.UUID(bytes_le=packet[:16])
             fields = event_uuid.urn.replace("urn:uuid:", "").split("-")

@@ -10,4 +10,8 @@ import logging
 
 from pyloxone_api.miniserver import Miniserver  # noqa
 
+__all__ = [
+    "Miniserver",
+]
+
 _LOGGER = logging.getLogger(__name__)

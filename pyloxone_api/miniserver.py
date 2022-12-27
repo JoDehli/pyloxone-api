@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import types
 import urllib.parse
 from base64 import b64decode, b64encode
 from hashlib import sha1, sha256
@@ -75,7 +76,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._tls_check_hostname: bool = True
         self._user_salt: str = ""
         self._ws: Websocket
-        self._version: list[int] = []  # a list of ints eg [12,0,1,2]
+        self._version: str = ""
 
     @property
     def host(self) -> str:
@@ -94,7 +95,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         return self._password
 
     @property
-    def msInfo(self) -> tuple:
+    def msInfo(self) -> tuple:  # type: ignore
         return self._msInfo
 
     @property
@@ -110,7 +111,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         return self._visual_password
 
     @property
-    def version(self) -> str:
+    def version(self) -> list[int]:
         """The Miniserver software version, as a list of ints eg [12,0,1,2]"""
         return [int(x) for x in self._version.split(".")] if self._version else []
 
@@ -171,6 +172,8 @@ class Miniserver(ConnectorMixin, TokensMixin):
         """Send a secured command to a Miniserver control."""
 
         # TODO: Refactor with tokens._hash_credentials and _hash_token
+        hash_module: types.ModuleType
+
         cmd = f"jdev/sys/getvisusalt/{self._user}"
         message = await self._send_text_command(cmd, encrypted=True)
         if not isinstance(message, TextMessage):
@@ -407,7 +410,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
                 for listener in self._message_listeners:
                     (future, message_types, expected_control) = listener
                     if (
-                        message.message_type == MessageType.TEXT
+                        isinstance(message, TextMessage)
                         and message_types == [MessageType.TEXT]
                         and expected_control
                     ):
