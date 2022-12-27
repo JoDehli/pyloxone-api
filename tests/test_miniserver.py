@@ -2,7 +2,6 @@ import pytest
 
 import pyloxone_api
 from pyloxone_api import Miniserver
-from pyloxone_api.api import _SaltMine
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
 
 
@@ -12,15 +11,15 @@ def dummy_miniserver():
     return Miniserver(user="admin", password="password", host="example.com", port=80)
 
 
-def test_LoxApp_init():
+def test_Miniserver_init():
     """Test class initialisation"""
     api = Miniserver()
     assert api.host == ""
     assert api.port == 80
-    assert api.user is None
-    assert api.password is None
-    assert api.version == ""
-    assert api._https_status is None
+    assert api.user == ""
+    assert api.password == ""
+    assert api.version == []
+    assert api._https_status == 0
     assert api._tls_check_hostname is True
     assert api._use_tls is False
 
@@ -69,7 +68,7 @@ class Test_get_json:
     )
 
     @pytest.mark.parametrize("status_code", [404, 500, 900])
-    async def test_LoxApp_json_http_error(
+    async def test_Miniserver_json_http_error(
         self, httpx_mock, dummy_miniserver, status_code
     ):
         """Test http error from server"""
@@ -77,7 +76,7 @@ class Test_get_json:
         with pytest.raises(LoxoneHTTPStatusError):
             await dummy_miniserver._ensure_reachable_and_get_structure()
 
-    async def test_LoxApp_getmsInfo(self, httpx_mock, dummy_miniserver):
+    async def test_Miniserver_getmsInfo(self, httpx_mock, dummy_miniserver):
         """Test fetching of https_status, version, json etc"""
         httpx_mock.add_response(
             url="http://example.com/jdev/cfg/apiKey", text=self.API_KEY_RETURN
@@ -90,8 +89,7 @@ class Test_get_json:
         )
 
         _ = await dummy_miniserver._ensure_reachable_and_get_structure()
-        assert dummy_miniserver.version == "12.0.2.24"
-        assert dummy_miniserver._version == [12, 0, 2, 24]
+        assert dummy_miniserver.version == [12, 0, 2, 24]
         assert dummy_miniserver._https_status == 1
         assert dummy_miniserver.structure["lastModified"] == "2021-05-11 23:09:38"
         assert dummy_miniserver._public_key != ""
@@ -103,23 +101,23 @@ class Test_get_json:
         assert dummy_miniserver.msInfo.roomTitle == "Rooms"
 
 
-def test_salt(monkeypatch):
-    monkeypatch.setattr(pyloxone_api.api, "SALT_MAX_USE_COUNT", 2)
-    s = _SaltMine()
-    salt1 = s.get_salt()
-    assert not salt1.is_new
-    # Check that value is a 32 character hex string
-    assert len(salt1.value) == 32
-    assert int(salt1.value, 16)
+# def test_salt(monkeypatch):
+#     monkeypatch.setattr(pyloxone_api.api, "SALT_MAX_USE_COUNT", 2)
+#     s = _SaltMine()
+#     salt1 = s.get_salt()
+#     assert not salt1.is_new
+#     # Check that value is a 32 character hex string
+#     assert len(salt1.value) == 32
+#     assert int(salt1.value, 16)
 
-    salt2 = s.get_salt()
-    assert salt2 == salt1
-    assert s._used_count == 2
-    salt3 = s.get_salt()  # Should trigger new salt generation
-    assert s._used_count == 0
-    assert salt3.is_new
-    assert salt3.value != salt2.value
-    assert salt3.previous == salt2.value
+#     salt2 = s.get_salt()
+#     assert salt2 == salt1
+#     assert s._used_count == 2
+#     salt3 = s.get_salt()  # Should trigger new salt generation
+#     assert s._used_count == 0
+#     assert salt3.is_new
+#     assert salt3.value != salt2.value
+#     assert salt3.previous == salt2.value
 
 
 def test_hash(dummy_miniserver):

@@ -16,7 +16,7 @@ pytestmark = pytest.mark.online
 
 @pytest.mark.asyncio
 async def test_online(online_credentials):
-    api = Miniserver(
+    miniserver = Miniserver(
         user=online_credentials["username"],
         password=online_credentials["password"],
         host=online_credentials["host"],
@@ -24,4 +24,5 @@ async def test_online(online_credentials):
         use_tls=online_credentials["use_tls"],
     )
 
-    await api.connect()
+    await miniserver.connect()
+    await miniserver.close()
