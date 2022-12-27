@@ -1,7 +1,9 @@
 """Discovery of miniservers on the local network."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import socket
 from asyncio.tasks import wait_for
@@ -38,7 +40,7 @@ async def discover(timeout: int = 5) -> tuple[str, int, str] | None:
             # broadcast 3 packets of 0x00 byte to UDP port 7070 (UDP is unreliable)
             for _ in range(3):
                 write_sock.sendto(b"\x00", ("255.255.255.255", 7070))
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 response = (
                     await wait_for(loop.sock_recv(read_sock, 1024), timeout)
                 ).decode()
@@ -46,6 +48,4 @@ async def discover(timeout: int = 5) -> tuple[str, int, str] | None:
                 if (found := re.match(r, response)) is not None:
                     (ip, port) = found.groups()
                     return (ip, int(port), response)
-            except asyncio.TimeoutError:
-                pass
             return None

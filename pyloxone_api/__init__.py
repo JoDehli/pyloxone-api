@@ -8,6 +8,6 @@ https://github.com/JoDehli/pyloxone-api
 
 import logging
 
-from .api import Miniserver  # noqa
+from pyloxone_api.miniserver import Miniserver  # noqa
 
 _LOGGER = logging.getLogger(__name__)

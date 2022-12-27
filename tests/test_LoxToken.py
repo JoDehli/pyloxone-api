@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from pyloxone_api.loxtoken import LoxToken
+from pyloxone_api.exceptions import LoxoneTokenError
 
 
 def test_seconds_to_expire():
@@ -23,14 +24,15 @@ def test_save_load(tmp_path):
     t.token = "TOKEN"
     t.valid_until = 100
     t.hash_alg = "SHA1"
-    t.save()
+    t.save_to_file()
     t2 = LoxToken(token_dir=tmp_path, token_filename="test_token")
-    assert t2.load() is True
+    t2.load_from_file()
     assert t2.token == t.token
     assert t2.valid_until == t.valid_until
     assert t2.hash_alg == t.hash_alg
     t3 = LoxToken(token_dir=tmp_path, token_filename="test_not_token")
-    assert t3.load() is False
+    with pytest.raises(LoxoneTokenError):
+        t3.load_from_file()
 
 
 def test_delete(tmp_path):
@@ -38,6 +40,11 @@ def test_delete(tmp_path):
     t.token = "TOKEN"
     t.valid_until = 100
     t.hash_alg = "SHA1"
-    t.save()
+    t.save_to_file()
     t.delete()
-    assert t.load() is False
+    with pytest.raises(LoxoneTokenError):
+        t.load_from_file()
+
+
+def test_hash_credentials():
+    pass

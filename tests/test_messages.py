@@ -1,5 +1,5 @@
 from pyloxone_api.exceptions import LoxoneException
-from pyloxone_api.message import parse_header, MessageType, LLResponse
+from pyloxone_api.message import parse_header, MessageType, LoxoneResponse
 import pytest
 
 HEADER1 = b"\x03\x01\xFF\x00\x9c\x17\x00\x00"
@@ -42,14 +42,14 @@ class Test_LL_Response:
     )
 
     def test_LL_response(self):
-        response = LLResponse(self.LL_RESPONSE)
+        response = LoxoneResponse(self.LL_RESPONSE)
         assert response.control == "dev/sys/getPublicKey"
         assert response.code == 200
         assert response.value == "my hovercraft is full of eels"
         assert response.value_as_dict == {"value": "my hovercraft is full of eels"}
 
     def test_LL_nested_response(self):
-        response = LLResponse(self.NESTED_LL_RESPONSE)
+        response = LoxoneResponse(self.NESTED_LL_RESPONSE)
         assert response.control == "dev/sys/getPublicKey"
         assert response.code == 200
         assert response.value == "{'text': 'my hovercraft is full of eels'}"
@@ -64,4 +64,4 @@ class Test_LL_Response:
     )
     def test_bad_LL_response(self, response):
         with pytest.raises(ValueError):
-            assert LLResponse(response)
+            assert LoxoneResponse(response)

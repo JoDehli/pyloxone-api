@@ -9,5 +9,9 @@ class LoxoneHTTPStatusError(LoxoneException):
     """An exception indicating an unusual http response from the miniserver"""
 
 
-class LoxoneRequestError(Exception):
+class LoxoneRequestError(LoxoneException):
     """An exception raised during an http request"""
+
+
+class LoxoneTokenError(LoxoneException):
+    """An exception indicating a problem loading or saving a token"""

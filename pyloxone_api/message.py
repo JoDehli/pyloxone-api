@@ -1,4 +1,5 @@
-"""Classes for handling messages from a miniserver"""
+"""Classes for handling messages from a Miniserver"""
+
 from __future__ import annotations
 
 import json
@@ -6,12 +7,13 @@ import math
 import struct
 import uuid
 from enum import IntEnum
+from typing import Any
 
 from pyloxone_api.exceptions import LoxoneException
 
 
-class LLResponse:
-    """A class for parsing LL Responses from the miniserver
+class LoxoneResponse:
+    """A class for parsing LL Responses from the miniserver.
 
     An LL Response is a json object often returned by a miniserver in response
     to a command. It begins "{"LL": {..." and has a control, code and value
@@ -27,7 +29,7 @@ class LLResponse:
 
     def __init__(self, response: str | bytes):
         try:
-            self._parsed: dict = json.loads(response)
+            self._parsed: dict[Any, Any] = json.loads(response)
             # Sometimes, Loxone uses "Code", and sometimes "code"
             self.code: int = int(
                 self._parsed.get("LL", {}).get("code", "")
@@ -36,19 +38,17 @@ class LLResponse:
             self.control: str = self._parsed["LL"]["control"]
             self.value: str = str(self._parsed["LL"]["value"])
         except (ValueError, KeyError, TypeError) as exc:
-            raise ValueError(exc)
+            raise ValueError(exc) from exc
 
     @property
-    def value_as_dict(self) -> dict:
+    def value_as_dict(self) -> dict[Any, Any]:
         d = self._parsed["LL"]["value"]
         retval = {"value": self.value}
-        if isinstance(d, dict):
-            return {**retval, **d}
-        return retval
+        return {**retval, **d} if isinstance(d, dict) else retval
 
 
 class MessageType(IntEnum):
-    """The different types of message which the miniserver might send"""
+    """The different types of message which the Miniserver might send."""
 
     TEXT = 0
     BINARY = 1
@@ -72,12 +72,12 @@ class MessageHeader:
         #   UINT nLen;         // 32-Bit Unsigned Integer (little endian)
         # } PACKED WsBinHdr;
         self.header = header
-        if not header[0] == 3:
-            raise LoxoneException(r"Invalid header received: first byte is not \0x03")
+        if header[0] != 3:
+            raise LoxoneException(r"Invalid header: first byte is not \0x03")
         try:
             unpacked_data = struct.unpack("<cBccI", header)
         except (struct.error, TypeError) as exc:
-            raise LoxoneException(f"Invalid header received: {exc}")
+            raise LoxoneException(f"Invalid header: {exc}") from exc
         self.message_type: MessageType = MessageType(unpacked_data[1])
         # First bit indicates that length is only estimated
         self.estimated: bool = ord(unpacked_data[2]) >> 7 == 1
@@ -85,7 +85,7 @@ class MessageHeader:
 
 
 class BaseMessage:
-    """The base class for all messages from the miniserver"""
+    """The base class for all messages from the Miniserver."""
 
     message_type = MessageType.UNKNOWN
 
@@ -93,7 +93,7 @@ class BaseMessage:
         self.message = message
         # For the base class, the dict is the message
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[Any, Any]:
         """Return the contents of the message as a dict"""
         return {}
 
@@ -103,7 +103,7 @@ class TextMessage(BaseMessage):
 
     def __init__(self, message: bytes | str):
         super().__init__(message)
-        ll_message = LLResponse(message)
+        ll_message = LoxoneResponse(message)
         self.code = ll_message.code
         self.control = ll_message.control
         self.value = ll_message.value
@@ -113,8 +113,8 @@ class TextMessage(BaseMessage):
 class BinaryFile(BaseMessage):
     message_type = MessageType.BINARY
 
-    # The message is a binary file. There is nothing parse
-    def as_dict(self):
+    # The message is a binary file. There is nothing to parse
+    def as_dict(self) -> dict[Any, Any]:
         return {}
 
 
@@ -127,7 +127,7 @@ class ValueStatesTable(BaseMessage):
     #     double dVal;  // 64-Bit Float (little endian) value
     # } PACKED EvData;
 
-    def as_dict(self):
+    def as_dict(self) -> dict[str, Any]:
         event_dict = {}
         length = len(self.message)
         num = length / 24
@@ -135,7 +135,7 @@ class ValueStatesTable(BaseMessage):
         end = 24
         for _ in range(int(num)):
             packet = self.message[start:end]
-            event_uuid = uuid.UUID(bytes_le=packet[0:16])
+            event_uuid = uuid.UUID(bytes_le=packet[:16])
             fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
             uuidstr = f"{fields[0]}-{fields[1]}-{fields[2]}-{fields[3]}{fields[4]}"
             value = struct.unpack("d", packet[16:24])[0]
@@ -155,7 +155,7 @@ class TextStatesTable(BaseMessage):
     #     unsigned long textLength;    // 32-Bit Unsigned Integer (little endian)
     #     // text follows here
     #     } PACKED EvDataText;
-    def as_dict(self):
+    def as_dict(self) -> dict[str, Any]:
         event_dict = {}
         start = 0
 
@@ -201,38 +201,36 @@ class DaytimerStatesTable(BaseMessage):
     message_type = MessageType.DAYTIMER_STATES
 
     # We dont currently handle this.
-    def as_dict(self):
+    def as_dict(self) -> dict[str, Any]:
         return {}
 
 
 class OutOfServiceIndicator(BaseMessage):
     message_type = MessageType.OUT_OF_SERVICE
-    # There can be no such message. If an out-of-service header is sent, the
-    # miniserver will close the connection before sending a message.
+    # There is no message body for an Out of Service message. The Miniserver
+    # will close the connection immedately after sending the header
 
 
 class Keepalive(BaseMessage):
     message_type = MessageType.KEEPALIVE
-
-    # Nothing to do. The dict is the message (which is b'keepalive')
-    def as_dict(self):
-        return {"keep_alive": "received"}
+    # There is no message body for a KEEPALIVE message.
 
 
 class WeatherStatesTable(BaseMessage):
     message_type = MessageType.WEATHER_STATES
 
-    def as_dict(self):
+    # We dont currently handle this.
+    def as_dict(self) -> dict[str, Any]:
         return {}
+
+
+Class_Table = {klass.message_type: klass for klass in BaseMessage.__subclasses__()}
 
 
 def parse_header(header: bytes) -> MessageHeader:
     return MessageHeader(header)
 
 
-def parse_message(message: bytes | str, message_type: int) -> BaseMessage:
+def parse_message(message: bytes | str, message_type: MessageType) -> BaseMessage:
     """Return an instance of the appropriate BaseMessage subclass"""
-    for klass in BaseMessage.__subclasses__():
-        if klass.message_type == message_type:
-            return klass(message)
-    raise LoxoneException(f"Unknown message type {message_type}")
+    return Class_Table[message_type](message)

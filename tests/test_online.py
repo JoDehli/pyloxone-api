@@ -24,4 +24,4 @@ async def test_online(online_credentials):
         use_tls=online_credentials["use_tls"],
     )
 
-    await api._getStructureFile()
+    await api.connect()

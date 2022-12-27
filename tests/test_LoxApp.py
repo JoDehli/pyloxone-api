@@ -3,26 +3,22 @@ import pytest
 import pyloxone_api
 from pyloxone_api import Miniserver
 from pyloxone_api.api import _SaltMine
-from pyloxone_api.const import LOXAPPPATH
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
 
 
 @pytest.fixture
 def dummy_miniserver():
     """A dummy LoxApp() with fake credentials"""
-    api = Miniserver(user="admin", password="password", host="example.com", port=80)
-
-    return api
+    return Miniserver(user="admin", password="password", host="example.com", port=80)
 
 
 def test_LoxApp_init():
     """Test class initialisation"""
     api = Miniserver()
-    assert api._host == ""
-    assert api._port == 80
-    assert api._user is None
-    assert api._password is None
-    assert api.json is None
+    assert api.host == ""
+    assert api.port == 80
+    assert api.user is None
+    assert api.password is None
     assert api.version == ""
     assert api._https_status is None
     assert api._tls_check_hostname is True
@@ -31,7 +27,7 @@ def test_LoxApp_init():
 
 @pytest.mark.asyncio
 class Test_get_json:
-    """Test operation of get_json method"""
+    """Test operation of basicInfo methods"""
 
     API_KEY_RETURN = """{
     "LL": {
@@ -77,28 +73,27 @@ class Test_get_json:
         self, httpx_mock, dummy_miniserver, status_code
     ):
         """Test http error from server"""
-        httpx_mock.add_response(status_code)
+        httpx_mock.add_response(status_code=status_code)
         with pytest.raises(LoxoneHTTPStatusError):
-            await dummy_miniserver._getStructureFile()
+            await dummy_miniserver._ensure_reachable_and_get_structure()
 
     async def test_LoxApp_getmsInfo(self, httpx_mock, dummy_miniserver):
         """Test fetching of https_status, version, json etc"""
         httpx_mock.add_response(
-            url="http://example.com/jdev/cfg/apiKey", data=self.API_KEY_RETURN
+            url="http://example.com/jdev/cfg/apiKey", text=self.API_KEY_RETURN
         )
         httpx_mock.add_response(
-            url=f"http://example.com{LOXAPPPATH}", data=self.LOXAPP3
+            url="http://example.com/data/LoxAPP3.json", text=self.LOXAPP3
         )
         httpx_mock.add_response(
-            url="http://example.com/jdev/sys/getPublicKey", data=self.PUBLIC_KEY_RETURN
+            url="http://example.com/jdev/sys/getPublicKey", text=self.PUBLIC_KEY_RETURN
         )
 
-        _ = await dummy_miniserver._getStructureFile()
+        _ = await dummy_miniserver._ensure_reachable_and_get_structure()
         assert dummy_miniserver.version == "12.0.2.24"
         assert dummy_miniserver._version == [12, 0, 2, 24]
-        assert dummy_miniserver.snr == "12:34:56:78:9A:BC"
         assert dummy_miniserver._https_status == 1
-        assert dummy_miniserver.json["lastModified"] == "2021-05-11 23:09:38"
+        assert dummy_miniserver.structure["lastModified"] == "2021-05-11 23:09:38"
         assert dummy_miniserver._public_key != ""
         assert dummy_miniserver.host == "example.com"
         assert dummy_miniserver.port == 80
@@ -125,3 +120,8 @@ def test_salt(monkeypatch):
     assert salt3.is_new
     assert salt3.value != salt2.value
     assert salt3.previous == salt2.value
+
+
+def test_hash(dummy_miniserver):
+    dummy_miniserver._hash_alg = "SHA1"
+    dummy_miniserver._hash_credentials()
