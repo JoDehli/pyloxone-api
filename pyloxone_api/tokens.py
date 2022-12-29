@@ -18,6 +18,8 @@ from pyloxone_api.message import LoxoneResponse, TextMessage
 from pyloxone_api.types import MiniserverProtocol
 
 _LOGGER = logging.getLogger(__name__)
+# Loxone epoch is 1.1.2009
+LOXONE_EPOCH = datetime.datetime(2009, 1, 1, 0, 0)
 
 
 @dataclass
@@ -28,17 +30,16 @@ class LoxoneToken:
     valid_until: float = 0  # seconds since 1.1.2009
     key: str = ""
 
-    def seconds_to_expire(self, valid_until: int = 0) -> int:
+    def seconds_to_expire(self) -> int:
         """The number of seconds until this token expires."""
-        # Loxone epoch is 1.1.2009
-        loxone_epoch = datetime.datetime(2009, 1, 1, 0, 0)
+
         # current number of seconds since epoch
         current_seconds_since_epoch = (
-            datetime.datetime.now() - loxone_epoch
+            datetime.datetime.now() - LOXONE_EPOCH
         ).total_seconds()
         # work out how many seconds are left
-        if valid_until != 0:
-            return int(valid_until - current_seconds_since_epoch)
+        if self.valid_until == 0:
+            raise ValueError("Cannnot have valid_until == 0")
         return int(self.valid_until - current_seconds_since_epoch)
 
 
