@@ -1,4 +1,4 @@
-"""A mixin containing methods representing the steps necessary 
+"""A mixin containing methods representing the steps necessary
 for connecting to the Miniserver."""
 
 from __future__ import annotations
@@ -41,16 +41,18 @@ async def _raise_if_error(response: httpx.Response) -> None:
     # And there are references to non-standard codes in the docs (eg a 900
     # error). At present, treat any >=400 code as an exception.
     if response.status_code >= 400:
-        await response.aread()  #  https://github.com/encode/httpx/discussions/1856
+        await response.aread()  # https://github.com/encode/httpx/discussions/1856
         raise LoxoneHTTPStatusError(
             f"Code {response.status_code}. Miniserver response was {response.text}"
         )
 
 
 class ConnectorMixin(MiniserverProtocol):
-    # The necessary steps for creating a connection to a miniserver are detailed in
-    # Loxone's document "Communicating with the Loxone Miniserver", available from
-    # Loxone's website (at the time of writing, https://www.loxone.com/enen/kb/api/).
+    # The necessary steps for creating a connection to a miniserver are detailed
+    # in Loxone's document "Communicating with the Loxone Miniserver", available
+    # from Loxone's website (at the time of writing,
+    # https://www.loxone.com/enen/kb/api/).
+    #
     # In short, there are 10 steps:
     # 1. Ensure the miniserver is reachable
     # 2. Acquire the miniserver's public key
@@ -63,15 +65,18 @@ class ConnectorMixin(MiniserverProtocol):
     # 9. Autheticate with the token (if it exists), or acquire a token
     # 10. Done!
 
-    # Step 1: Ensure the miniserver is reachable. It is convenient, whilst we have an
-    # http connection, to use it to obtain the Loxone Structure File as well
+    # Step 1: Ensure the miniserver is reachable. It is convenient, whilst we
+    # have an http connection, to use it to obtain the Loxone Structure File as
+    # well
     # Step 2: Acquire the miniserver's public key
     async def _ensure_reachable_and_get_structure(self) -> None:
         scheme = "https" if self._use_tls else "http"
         _base_url = f"{scheme}://{self._host}:{self._port}"
         auth = (self._user, self._password) if (self._user and self._password) else None
-        # Create the http client. The event hook ensures that any errors encountered in the response
-        # are raised as exceptions, and caught below.
+        # Create the http client. The event hook ensures that any errors
+        # encountered in the response are raised as exceptions, and caught
+        # below.
+
         # TODO: Replace with aiohttp
         # TODO: Check what happens with Cloud server and external access
         http_client = httpx.AsyncClient(
@@ -229,7 +234,8 @@ class ConnectorMixin(MiniserverProtocol):
         # of space, but so far, so good!
 
         if self._token is None:
-            # Once a new token is acquired, there is no need to authenticate separately
+            # Once a new token is acquired, there is no need to authenticate
+            # separately
             await self._acquire_token()
         else:
             # Authenticate using the existing token

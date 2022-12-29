@@ -13,7 +13,6 @@ import logging
 import types
 import urllib.parse
 from base64 import b64decode, b64encode
-from hashlib import sha1, sha256
 from typing import Any, Coroutine, NoReturn
 
 from Crypto.Cipher import AES
@@ -52,9 +51,10 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._visual_password = visual_password or password  # Default to password
         self._token = LoxoneToken()
         self._use_tls = use_tls
-        # If use_tls is True, certificate hostnames will be checked. This means that
-        # an IP address cannot be used as a hostname. Set _tls_check_hostname to false
-        # to disable this check. This creates a SECURITY RISK.
+        # If use_tls is True, certificate hostnames will be checked. This means
+        # that an IP address cannot be used as a hostname. Set
+        # _tls_check_hostname to false to disable this check. This creates a
+        # SECURITY RISK.
         self._aes_key: bytes = b""
         self._background_tasks: list[asyncio.Task] = []
         self._iv: bytes = b""
@@ -71,7 +71,6 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._salt_has_expired: bool = False
         self._salt: str = ""
         self._snr: str = ""
-        self._state: str = "CLOSED"
         self._structure: dict[str, Any] = {}
         self._tls_check_hostname: bool = True
         self._user_salt: str = ""
@@ -137,8 +136,8 @@ class Miniserver(ConnectorMixin, TokensMixin):
         """Close the connection to the miniserver, and gracefully shutdown."""
         _LOGGER.debug("Stopping tasks, and closing connection")
         # We should probably kill the token, but this causes the websocket to
-        # close immediately, so will need special handling await
-        # self._kill_token()
+        # close immediately, so will need special handling
+        # await self._kill_token()
         for task in self._background_tasks:
             task.cancel()
         await self._ws.close()
@@ -231,8 +230,9 @@ class Miniserver(ConnectorMixin, TokensMixin):
             #     raise
 
         _task = asyncio.create_task(task, name=task.__name__)
-        # If an exception occurs in a task, it is considered done, so we add a callback
-        # which can re-rasise any exceptions in the context of the main co-routine
+        # If an exception occurs in a task, it is considered done, so we add a
+        # callback which can re-rasise any exceptions in the context of the main
+        # co-routine
         _task.add_done_callback(handle_errors)
         self._background_tasks.append(_task)
         return _task
@@ -386,9 +386,9 @@ class Miniserver(ConnectorMixin, TokensMixin):
             header = parse_header(header_data)
             if header.message_type is MessageType.OUT_OF_SERVICE:
                 raise LoxoneException("Miniserver is out of service")
-            # Now get the message body. NB this assumes that the body immediately
-            # follows the header. KEEPALIVE headers are not followed by a body, so
-            # there is no body to wait for!
+            # Now get the message body. NB this assumes that the body
+            # immediately follows the header. KEEPALIVE headers are not followed
+            # by a body, so there is no body to wait for!
             if header.message_type is MessageType.KEEPALIVE:
                 message_data: str | bytes = ""
             else:

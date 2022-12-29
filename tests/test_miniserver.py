@@ -1,6 +1,5 @@
 import pytest
 
-import pyloxone_api
 from pyloxone_api import Miniserver
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
 

@@ -5,7 +5,8 @@ def pytest_addoption(parser):
     parser.addoption(
         "--host",
         action="store",
-        help="host name or IP address of miniserver. If not specified, online tests will be skipped",
+        help="host name or IP address of miniserver. If not specified,"
+        "online tests will be skipped",
     )
     parser.addoption(
         "--port", action="store", default="80", help="port for miniserver communication"

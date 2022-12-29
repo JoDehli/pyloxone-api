@@ -77,7 +77,9 @@ class TokensMixin(MiniserverProtocol):
         self._token.key = response.value_as_dict["key"]
 
     async def _kill_token(self) -> None:
-        """Remove the token from the Miniserver's storage. This will cause the websocket connection to close immediately"""
+        """Remove the token from the Miniserver's storage.
+
+        This will cause the websocket connection to close immediately"""
         _LOGGER.debug("Killing token")
         # ToThis command requires Loxone >= 11.2. Before then, the token had to be hashed
         command = f"jdev/sys/killtoken/{self._token.token}/{self._user}"
