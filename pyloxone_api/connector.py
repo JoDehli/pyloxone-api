@@ -21,7 +21,7 @@ from pyloxone_api.exceptions import (
     LoxoneHTTPStatusError,
     LoxoneRequestError,
 )
-from pyloxone_api.message import LoxoneResponse, MessageType
+from pyloxone_api.message import LoxoneResponse
 from pyloxone_api.types import MiniserverProtocol
 from pyloxone_api.websocket import Websocket
 
@@ -206,9 +206,6 @@ class ConnectorMixin(MiniserverProtocol):
         message = await self._send_text_command(
             f"jdev/sys/keyexchange/{encrypted_session_key}"
         )
-        if message.message_type != MessageType.TEXT:
-            raise LoxoneException("Error in getting a session key response")
-
         if message.code != 200:
             _LOGGER.error(
                 f"Error in getting a session key response. Code {message.code}"
@@ -221,7 +218,7 @@ class ConnectorMixin(MiniserverProtocol):
     # Step 8. Generate a random salt
     def _generate_salt(self) -> None:
         _LOGGER.debug("Generating a new salt")
-        self._salt = get_random_bytes(1).hex()
+        self._salt = get_random_bytes(4).hex()
         self._salt_has_expired = False
 
     # Step 9. Autheticate with the token (if it exists), or acquire a token
@@ -242,10 +239,6 @@ class ConnectorMixin(MiniserverProtocol):
             token_hash = self._hash_token()
             auth_command = f"authwithtoken/{token_hash}/{self._user}"
             message = await self._send_text_command(auth_command, encrypted=True)
-            if (
-                message.message_type is MessageType.TEXT
-                and message.code == 200
-                and "validUntil" in message.value_as_dict
-            ):
+            if message.code == 200 and "validUntil" in message.value_as_dict:
                 self._token.valid_until = message.value_as_dict["validUntil"]
             raise LoxoneException(f"Authentication error: {message}")
