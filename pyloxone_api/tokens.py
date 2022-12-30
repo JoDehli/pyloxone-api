@@ -9,7 +9,7 @@ import logging
 import types
 import uuid
 from dataclasses import dataclass
-from typing import NoReturn
+from typing import Final, NoReturn
 
 from Crypto.Hash import HMAC, SHA1, SHA256
 
@@ -19,7 +19,7 @@ from pyloxone_api.types import MiniserverProtocol
 
 _LOGGER = logging.getLogger(__name__)
 # Loxone epoch is 1.1.2009
-LOXONE_EPOCH = datetime.datetime(2009, 1, 1, 0, 0)
+LOXONE_EPOCH: Final = datetime.datetime(2009, 1, 1, 0, 0)
 
 
 @dataclass
