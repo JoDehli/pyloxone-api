@@ -20,7 +20,7 @@ from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.Util import Padding
 
 from pyloxone_api.connector import ConnectorMixin
-from pyloxone_api.exceptions import LoxoneException
+from pyloxone_api.exceptions import LoxoneCommandError, LoxoneException
 from pyloxone_api.message import (
     BaseMessage,
     MessageType,
@@ -175,12 +175,6 @@ class Miniserver(ConnectorMixin, TokensMixin):
 
         cmd = f"jdev/sys/getvisusalt/{self._user}"
         message = await self._send_text_command(cmd, encrypted=True)
-        if not isinstance(message, TextMessage):
-            raise LoxoneException("Unexpected message type")
-        if message.code != 200:
-            raise LoxoneException(
-                f"Cannot acquire token: code {message.code}: {message.value}"
-            )
 
         visu_key = message.value_as_dict["key"]
         visu_salt = message.value_as_dict["salt"]
@@ -280,6 +274,8 @@ class Miniserver(ConnectorMixin, TokensMixin):
             raise LoxoneException(
                 f"Expected {expected_control}, but received {message.control}"
             )
+        if message.code != 200:
+            raise LoxoneCommandError(code=message.code, message=message.value)
         return message
 
     async def _get_message(
@@ -292,7 +288,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
 
         # Sanity check
         if expected_control != "" and message_types != [MessageType.TEXT]:
-            raise LoxoneException("Illegal parameters to _get_message")
+            raise ValueError("Illegal parameters to _get_message")
         # Create a future and add to a list. The future's result will be set by
         # the _process_message method, when a relevant message is found.
         loop = asyncio.get_running_loop()
@@ -339,7 +335,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
             self._salt_has_expired = True
 
     async def _keep_alive(self) -> NoReturn:
-        """Send a keep-allive message to the Miniserver every 4.5 minutes."""
+        """Send a keep-alive message to the Miniserver every 4.5 minutes."""
         # The miniserver will close the connection if it doesn’t receive a
         # message for 5 minutes. Keepalive messages are sent to keep the
         # connection open. NB These are different from the Keepalive ping pong

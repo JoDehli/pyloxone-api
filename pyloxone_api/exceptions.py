@@ -13,5 +13,12 @@ class LoxoneRequestError(LoxoneException):
     """An exception raised during an http request"""
 
 
-class LoxoneTokenError(LoxoneException):
-    """An exception indicating a problem loading or saving a token"""
+class LoxoneCommandError(LoxoneException):
+    """An exception raised when a command is sent to the miniserver"""
+
+    def __init__(self, code: int, message: str) -> None:
+        self.code = code
+        self.message = message
+
+    def __str__(self) -> str:
+        return f"{self.code}: {self.message}"

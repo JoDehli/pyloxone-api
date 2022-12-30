@@ -43,7 +43,7 @@ async def _raise_if_error(response: httpx.Response) -> None:
     if response.status_code >= 400:
         await response.aread()  # https://github.com/encode/httpx/discussions/1856
         raise LoxoneHTTPStatusError(
-            f"Code {response.status_code}. Miniserver response was {response.text}"
+            f"Code {response.status_code}: {response.reason_phrase}"
         )
 
 
@@ -203,16 +203,7 @@ class ConnectorMixin(MiniserverProtocol):
             raise LoxoneException(exc) from exc
         _LOGGER.debug("Succesfully generated session key")
         # Pass the encrypted session key to the miniserver
-        message = await self._send_text_command(
-            f"jdev/sys/keyexchange/{encrypted_session_key}"
-        )
-        if message.code != 200:
-            _LOGGER.error(
-                f"Error in getting a session key response. Code {message.code}"
-            )
-            raise LoxoneException(
-                f"Error in getting a session key response. Code {message.code}"
-            )
+        await self._send_text_command(f"jdev/sys/keyexchange/{encrypted_session_key}")
         _LOGGER.debug("Succesfully exchanged encrypted session key")
 
     # Step 8. Generate a random salt
@@ -238,7 +229,4 @@ class ConnectorMixin(MiniserverProtocol):
             # Authenticate using the existing token
             token_hash = self._hash_token()
             auth_command = f"authwithtoken/{token_hash}/{self._user}"
-            message = await self._send_text_command(auth_command, encrypted=True)
-            if message.code == 200 and "validUntil" in message.value_as_dict:
-                self._token.valid_until = message.value_as_dict["validUntil"]
-            raise LoxoneException(f"Authentication error: {message}")
+            await self._send_text_command(auth_command, encrypted=True)

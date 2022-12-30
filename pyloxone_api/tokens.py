@@ -14,7 +14,7 @@ from typing import NoReturn
 from Crypto.Hash import HMAC, SHA1, SHA256
 
 from pyloxone_api.exceptions import LoxoneException
-from pyloxone_api.message import LoxoneResponse, TextMessage
+from pyloxone_api.message import LoxoneResponse
 from pyloxone_api.types import MiniserverProtocol
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,12 +55,6 @@ class TokensMixin(MiniserverProtocol):
         # There is no need for this to be encrypted, if TLS is used, but the docs suggest
         # it should be
         message = await self._send_text_command(command, encrypted=True)
-        if not isinstance(message, TextMessage):
-            raise LoxoneException("Unexpected message type")
-        if message.code != 200:
-            raise LoxoneException(
-                f"Cannot acquire token: code {message.code}: {message.value}"
-            )
 
         self._key = message.value_as_dict["key"]
         self._user_salt = message.value_as_dict["salt"]
@@ -84,11 +78,7 @@ class TokensMixin(MiniserverProtocol):
         _LOGGER.debug("Killing token")
         # ToThis command requires Loxone >= 11.2. Before then, the token had to be hashed
         command = f"jdev/sys/killtoken/{self._token.token}/{self._user}"
-        message = await self._send_text_command(command)
-        if message.code != 200:
-            raise LoxoneException(
-                f"Cannot kill token: code {message.code}: {message.value}"
-            )
+        await self._send_text_command(command)
 
     async def _refresh_token(self) -> NoReturn:
         """A background task which refreshes the token periodically.
@@ -99,12 +89,6 @@ class TokensMixin(MiniserverProtocol):
         while True:
             command = f"jdev/sys/refreshjwt/{self._token.token}/{self._user}"
             message = await self._send_text_command(command, encrypted=False)
-            if (
-                not isinstance(message, TextMessage)
-                or message.code != 200
-                or "validUntil" not in message.value_as_dict
-            ):
-                raise LoxoneException(f"Cannot renew token: Code {message.code}")
             _LOGGER.debug("Refreshing token")
             self._token.token = message.value_as_dict["token"]
             self._token.valid_until = message.value_as_dict["validUntil"]
@@ -116,19 +100,8 @@ class TokensMixin(MiniserverProtocol):
         # Token does not need to be hashed for Loxone >=11.2
         # token_hash = await self._hash_token()
         command = f"jdev/sys/checktoken/{self._hash_token()}/{self._user}"
-        message = await self._send_text_command(command, encrypted=True)
-        if isinstance(message, TextMessage):
-            if message.code == 200:
-                _LOGGER.debug(f"Token is verified for {self._user}.")
-            elif message.code == 401:
-                raise LoxoneException("401 - UNAUTHORIZED for check token.")
-            elif message.code == 400:
-                raise LoxoneException("400 - BAD_REQUEST for check token.")
-            # Like an 401 but that when the token is no longer valid.
-            # elif message.code == 477:
-            #     await self._refresh()
-        else:
-            raise LoxoneException("No token!")
+        await self._send_text_command(command, encrypted=True)
+        _LOGGER.debug(f"Token is verified for {self._user}.")
 
     def _hash_credentials(self) -> str:
         hash_module: types.ModuleType
