@@ -61,10 +61,19 @@ class TokensMixin(MiniserverProtocol):
         self._hash_alg = message.value_as_dict.get("hashAlg", None)
         new_hash = self._hash_credentials()
         # Request a JSON web token. uuid uniquely identiﬁes the client to the
-        # Miniserver, and allows it to look up all the client's tokens
+        # Miniserver, and allows it to look up all the client's tokens.
         UUID = uuid.UUID(int=uuid.getnode())
-        command = f"jdev/sys/getjwt/{new_hash}/{self._user}/2{UUID}/pyloxone_api"
-        # According to the docs, this request MUST be encrypted, though in fact it doesn’t
+        # PERMISSION can be 2 for for a 'short' lifespan token (days), or 4 for
+        # a longer lifespan (weeks). We ask for shorter token here. Renewing it
+        # is relatively easy, and the lifespan ensures that the tokens don't
+        # stick around for too long in the miniserver's memory if we have
+        # frequent restarts.
+        PERMISSION = 2
+        command = (
+            f"jdev/sys/getjwt/{new_hash}/{self._user}/{PERMISSION}/{UUID}/pyloxone_api"
+        )
+        # According to the docs, this request MUST be encrypted, though in fact
+        # it doesn’t
         message = await self._send_text_command(command, encrypted=True)
         response = LoxoneResponse(message.message)
         self._token.token = response.value_as_dict["token"]
