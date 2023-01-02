@@ -11,7 +11,6 @@ from collections import namedtuple
 from typing import Any, Final
 
 import aiohttp
-import websockets as wslib
 from Crypto.Cipher import PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
@@ -23,7 +22,6 @@ from pyloxone_api.exceptions import (
 )
 from pyloxone_api.message import LoxoneResponse
 from pyloxone_api.types import MiniserverProtocol
-from pyloxone_api.websocket import Websocket
 
 _LOGGER = logging.getLogger(__name__)
 TIMEOUT: Final = 10
@@ -141,7 +139,8 @@ class ConnectorMixin(MiniserverProtocol):
         # normally.
         except aiohttp.ClientResponseError as exc:
             _LOGGER.error(
-                f'An error "{exc.code}: {exc.message}" occurred while requesting {exc.request_info.url!r}.'
+                f'An error "{exc.code}: {exc.message}" occurred while'
+                f"requesting {exc.request_info.url!r}."
             )
             raise LoxoneRequestError(exc) from None
         except LoxoneHTTPStatusError as exc:
@@ -158,25 +157,24 @@ class ConnectorMixin(MiniserverProtocol):
         scheme = "wss" if self._use_tls else "ws"
         url = f"{scheme}://{self._host}:{self._port}/ws/rfc6455"
         # pylint: disable=no-member
+        self._ws_session = aiohttp.ClientSession()
         try:
             if self._use_tls:
                 ssl_context = ssl.create_default_context()
                 ssl_context.check_hostname = self._tls_check_hostname
-                self._ws = await wslib.client.connect(
+                self._ws = await self._ws_session.ws_connect(
                     url,
                     timeout=TIMEOUT,
-                    ssl=ssl_context,
-                    create_protocol=Websocket,
-                    subprotocols=["remotecontrol"],  # type: ignore
+                    ssl_context=ssl_context,
+                    protocols=["remotecontrol"],
                 )
             else:
-                self._ws = await wslib.client.connect(
+                self._ws = await self._ws_session.ws_connect(
                     url,
                     timeout=TIMEOUT,
-                    create_protocol=Websocket,
-                    subprotocols=["remotecontrol"],  # type: ignore
+                    protocols=["remotecontrol"],
                 )
-        except wslib.exceptions.WebSocketException as exc:
+        except aiohttp.WSServerHandshakeError as exc:
             _LOGGER.error("Unable to open websocket")
             raise LoxoneException("Unable to open websocket") from exc
         _LOGGER.debug(f"Opened websocket to {url}")
