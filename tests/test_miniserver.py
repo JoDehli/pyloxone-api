@@ -1,6 +1,9 @@
+from unittest.mock import AsyncMock, patch
 import pytest
 
 from pyloxone_api import Miniserver
+import pyloxone_api
+
 from pyloxone_api.exceptions import LoxoneHTTPStatusError
 
 
@@ -122,3 +125,16 @@ class Test_get_json:
 def test_hash(dummy_miniserver):
     dummy_miniserver._hash_alg = "SHA1"
     dummy_miniserver._hash_credentials()
+
+
+async def test_ws(dummy_miniserver):
+    with patch.object(
+        pyloxone_api.connector.wslib.client, "connect", new_callable=AsyncMock
+    ) as mock_ws:
+        mock_ws.return_value = "fish"
+        await dummy_miniserver._open_websocket()
+        assert dummy_miniserver._ws == "fish"
+        assert "ws://example.com:80/ws/rfc6455" in mock_ws.call_args.args
+        dummy_miniserver._use_tls = True
+        await dummy_miniserver._open_websocket()
+        assert "wss://example.com:80/ws/rfc6455" in mock_ws.call_args.args
