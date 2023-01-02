@@ -22,7 +22,7 @@ from pyloxone_api.exceptions import (
     LoxoneRequestError,
 )
 from pyloxone_api.message import LoxoneResponse
-from pyloxone_api.types import MiniserverProtocol
+from pyloxone_api.loxone_types import MiniserverProtocol
 from pyloxone_api.websocket import Websocket
 
 _LOGGER = logging.getLogger(__name__)
