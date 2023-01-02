@@ -14,8 +14,6 @@ import json
 import logging
 import sys
 
-import websockets
-
 # The main class you must import is Miniserver.
 from pyloxone_api import Miniserver
 
@@ -60,7 +58,7 @@ async def main() -> None:
         # websocket as well
         if args.verbose >= 2:
             # Turn on logging at the websocket level
-            _LOGGER2 = logging.getLogger("websockets")
+            _LOGGER2 = logging.getLogger("asyncio.websocket")
             _LOGGER2.setLevel(logging.DEBUG)
             _LOGGER2.addHandler(logging.StreamHandler())
 
