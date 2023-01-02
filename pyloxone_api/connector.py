@@ -10,7 +10,7 @@ from base64 import b64encode
 from collections import namedtuple
 from typing import Any, Final
 
-import httpx
+import aiohttp
 import websockets as wslib
 from Crypto.Cipher import PKCS1_v1_5
 from Crypto.PublicKey import RSA
@@ -27,24 +27,6 @@ from pyloxone_api.websocket import Websocket
 
 _LOGGER = logging.getLogger(__name__)
 TIMEOUT: Final = 10
-
-
-async def _raise_if_error(response: httpx.Response) -> None:
-    """An httpx event hook, to ensure that http error responses
-    raise an exception"""
-    # Loxone response codes are a bit odd. It is not clear whether a response
-    # which is not 200 is ever OK, though there are reports of the occasional
-    # 307. JSON responses also have a "Code" key, but it is unclear whether
-    # this is ever different from the http response code. At the moment, we
-    # ignore it.
-    #
-    # And there are references to non-standard codes in the docs (eg a 900
-    # error). At present, treat any >=400 code as an exception.
-    if response.status_code >= 400:
-        await response.aread()  # https://github.com/encode/httpx/discussions/1856
-        raise LoxoneHTTPStatusError(
-            f"Code {response.status_code}: {response.reason_phrase}"
-        )
 
 
 class ConnectorMixin(MiniserverProtocol):
@@ -72,23 +54,35 @@ class ConnectorMixin(MiniserverProtocol):
     async def _ensure_reachable_and_get_structure(self) -> None:
         scheme = "https" if self._use_tls else "http"
         _base_url = f"{scheme}://{self._host}:{self._port}"
-        auth = (self._user, self._password) if (self._user and self._password) else None
-        # Create the http client. The event hook ensures that any errors
-        # encountered in the response are raised as exceptions, and caught
-        # below.
-
-        # TODO: Replace with aiohttp
-        # TODO: Check what happens with Cloud server and external access
-        http_client = httpx.AsyncClient(
-            auth=auth,
-            base_url=_base_url,
-            verify=self._tls_check_hostname,
-            timeout=TIMEOUT,
-            event_hooks={"response": [_raise_if_error]},
+        auth = (
+            aiohttp.BasicAuth(self._user, self._password)
+            if (self._user and self._password)
+            else None
         )
+        # Create the http session.
+
+        # Loxone response codes are a bit odd. It is not clear whether a response
+        # which is not 200 is ever OK, though there are reports of the occasional
+        # 307. JSON responses also have a "Code" key, but it is unclear whether this
+        # is ever different from the http response code. At the moment, we ignore
+        # it.
+        #
+        # And there are references to non-standard codes in the docs (eg a 900
+        # error). At present, treat any >=400 code as an exception.
+
+        # TODO: Check what happens with Cloud server and external access
+        session = aiohttp.ClientSession(
+            auth=auth,
+            read_timeout=TIMEOUT,
+            raise_for_status=True,
+        )
+
         try:
-            response = await http_client.get("/jdev/cfg/apiKey")
-            value = LoxoneResponse(response.text).value
+            response = await session.get(
+                f"{_base_url}/jdev/cfg/apiKey",
+                ssl=self._tls_check_hostname,
+            )
+            value = LoxoneResponse(await response.text()).value
             _LOGGER.debug("Retrieved API key data")
             # The json returned by the miniserver is invalid. It contains " and '.
             # We need to normalise it
@@ -99,7 +93,7 @@ class ConnectorMixin(MiniserverProtocol):
             self._local = value_dict.get("local", True)
             if not self._local:
                 url = str(response.url)
-                http_client.base_url = httpx.URL(url.replace("/jdev/cfg/apiKey", ""))
+                _base_url = url.replace("/jdev/cfg/apiKey", "")
 
             # The Loxone Structure File is described in a document available at
             # https://www.loxone.com/enen/kb/api/  It describes certain global
@@ -109,9 +103,12 @@ class ConnectorMixin(MiniserverProtocol):
 
             # It is convenient to fetch it here, whilst we have an httpx client
 
-            structure_file = await http_client.get("/data/LoxAPP3.json")
+            structure_file = await session.get(
+                f"{_base_url}/data/LoxAPP3.json",
+                ssl=self._tls_check_hostname,
+            )
             _LOGGER.debug("Retrieved structure file")
-            self._structure = dict(structure_file.json())
+            self._structure = dict(await structure_file.json())
 
             # The msInfo record contains static information about the
             # miniserver. It is part of the structure file.
@@ -122,9 +119,12 @@ class ConnectorMixin(MiniserverProtocol):
             self._msInfo = MsInfo._make(self._structure["msInfo"].values())
 
             # Get the miniserver's public key
-            pk_data = await http_client.get("jdev/sys/getPublicKey")
+            pk_data = await session.get(
+                f"{_base_url}/jdev/sys/getPublicKey",
+                ssl=self._tls_check_hostname,
+            )
             _LOGGER.debug("Retrieved public key data")
-            pk = LoxoneResponse(pk_data.text).value
+            pk = LoxoneResponse(await pk_data.text()).value
             # Loxone returns a certificate instead of a key, and the certificate is not
             # properly PEM encoded because it does not contain newlines before/after the
             # boundaries. We need to fix both problems. Proper PEM encoding requires 64
@@ -139,9 +139,9 @@ class ConnectorMixin(MiniserverProtocol):
         # probably fatal, so log it and raise it for handling elsewhere. Other errors
         # are (hopefully) unlikely, but are not handled here, so will be raised
         # normally.
-        except httpx.RequestError as exc:
+        except aiohttp.ClientResponseError as exc:
             _LOGGER.error(
-                f'An error "{exc}" occurred while requesting {exc.request.url!r}.'
+                f'An error "{exc.code}: {exc.message}" occurred while requesting {exc.request_info.url!r}.'
             )
             raise LoxoneRequestError(exc) from None
         except LoxoneHTTPStatusError as exc:
@@ -151,7 +151,7 @@ class ConnectorMixin(MiniserverProtocol):
             return
         finally:
             # Async httpx client must always be closed
-            await http_client.aclose()
+            await session.close()
 
     # Step 3: Open a websocket connection
     async def _open_websocket(self) -> None:

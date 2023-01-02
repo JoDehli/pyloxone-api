@@ -22,7 +22,7 @@ readme = "README.md"
 "Bug Tracker" = "https://github.com/JoDehli/pyloxone-api/issues"
 
 [tool.poetry.dependencies]
-httpx = "^0.23.1"
+aiohttp = "^3.8.3"
 pycryptodome = "^3.16.0"
 python = "^3.9"
 websockets = "^10.4"

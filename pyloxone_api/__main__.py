@@ -14,7 +14,6 @@ import json
 import logging
 import sys
 
-import websockets
 
 # The main class you must import is Miniserver.
 from pyloxone_api import Miniserver
