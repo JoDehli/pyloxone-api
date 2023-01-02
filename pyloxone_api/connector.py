@@ -21,7 +21,7 @@ from pyloxone_api.exceptions import (
     LoxoneRequestError,
 )
 from pyloxone_api.message import LoxoneResponse
-from pyloxone_api.types import MiniserverProtocol
+from pyloxone_api.loxone_types import MiniserverProtocol
 
 _LOGGER = logging.getLogger(__name__)
 TIMEOUT: Final = 10

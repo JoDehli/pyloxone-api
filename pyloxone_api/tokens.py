@@ -15,7 +15,7 @@ from Crypto.Hash import HMAC, SHA1, SHA256
 
 from pyloxone_api.exceptions import LoxoneException
 from pyloxone_api.message import LoxoneResponse
-from pyloxone_api.types import MiniserverProtocol
+from pyloxone_api.loxone_types import MiniserverProtocol
 
 _LOGGER = logging.getLogger(__name__)
 # Loxone epoch is 1.1.2009
