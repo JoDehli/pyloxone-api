@@ -16,7 +16,7 @@ import urllib.parse
 from base64 import b64decode, b64encode
 from typing import Any, Coroutine, Iterable, NoReturn
 
-from aiohttp import ClientWebSocketResponse
+from aiohttp import ClientSession, ClientWebSocketResponse
 from Crypto.Cipher import AES
 from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.Util import Padding
@@ -59,6 +59,8 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._aes_key: bytes = b""
         self._background_tasks: list[asyncio.Task[Any]] = []
         self._iv: bytes = b""
+        self._http_base_url: str = ""
+        self._http_session: ClientSession | None = None  # type: ignore
         self._https_status: int = 0  # 0 = no TLS, 1 = TLS available, 2 = cert expired
         self._key: str = ""
         self._local: bool = False
@@ -120,8 +122,12 @@ class Miniserver(ConnectorMixin, TokensMixin):
     # ---------------------------------------------------------------------------- #
 
     async def connect(self) -> None:
-        """Open an authenticated websocket connection to the Miniserver."""
-        await self._ensure_reachable_and_get_structure()
+        """Open an authenticated websocket connection to the Miniserver.
+
+        Retry several times, with backoff, if necessary.
+        """
+        await self._ensure_reachable()
+        await self._get_public_key_and_structure_file()
         await self._open_websocket()
         # Run message listeners first, or we wont get any messages
         self._run_in_background(self._receive_and_add_to_queue())
@@ -143,6 +149,9 @@ class Miniserver(ConnectorMixin, TokensMixin):
             task.cancel()
         await self._ws.close()
         await self._ws_session.close()
+        if self._http_session:
+            await self._http_session.close()
+            self._http_session = None
 
     async def enable_state_updates(self) -> None:
         """Tell the Miniserver to start sending binary update messages."""
@@ -325,6 +334,17 @@ class Miniserver(ConnectorMixin, TokensMixin):
         # The miniserver seems to terminate the text with a zero byte
         return unpadded.rstrip(b"\x00")
 
+    async def _restart(self) -> None:
+        """Close and re-open the connection, following a Miniserver reboot."""
+
+        async def _restart() -> None:
+            await asyncio.sleep(10)
+            await self.connect()
+
+        _LOGGER.debug("Reconnecting")
+        asyncio.create_task(_restart())
+        await self.close()
+
     # ---------------------------------------------------------------------------- #
     #                               Background tasks                               #
     # ---------------------------------------------------------------------------- #
@@ -385,7 +405,10 @@ class Miniserver(ConnectorMixin, TokensMixin):
             _LOGGER.debug(f"Parsing header {header_data[:80]!r}")
             header = parse_header(header_data)
             if header.message_type is MessageType.OUT_OF_SERVICE:
-                raise LoxoneException("Miniserver is out of service")
+                # raise LoxoneOutOfServiceException("Miniserver is out of service")
+                _LOGGER.debug("Miniserver out of service.")
+                await self._restart()
+
             # Now get the message body. NB this assumes that the body
             # immediately follows the header. KEEPALIVE headers are not followed
             # by a body, so there is no body to wait for!
