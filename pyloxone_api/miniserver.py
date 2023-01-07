@@ -147,6 +147,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         # await self._kill_token()
         for task in self._background_tasks:
             task.cancel()
+        self._background_tasks = []
         await self._ws.close()
         await self._ws_session.close()
         if self._http_session:
@@ -337,12 +338,13 @@ class Miniserver(ConnectorMixin, TokensMixin):
     async def _restart(self) -> None:
         """Close and re-open the connection, following a Miniserver reboot."""
 
-        async def _restart() -> None:
-            await asyncio.sleep(10)
+        async def _do_restart() -> None:
+            await asyncio.sleep(60)
             await self.connect()
+            await self.enable_state_updates()
 
         _LOGGER.debug("Reconnecting")
-        asyncio.create_task(_restart())
+        asyncio.create_task(_do_restart())
         await self.close()
 
     # ---------------------------------------------------------------------------- #
