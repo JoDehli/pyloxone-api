@@ -84,8 +84,18 @@ class ConnectorMixin(MiniserverProtocol):
                     ssl=self._tls_check_hostname,
                 )
                 break
-            except aiohttp.ServerTimeoutError:
-                _LOGGER.debug(f"Cannot connect. Retrying in {interval} seconds")
+            except aiohttp.ServerTimeoutError as e:
+                if hasattr(e, "message"):
+                    _LOGGER.debug(f"Cannot connect. Message: {e.message}. Retrying in {interval} seconds")
+                else:
+                    _LOGGER.debug(f"Cannot connect. Retrying in {interval} seconds")
+                await asyncio.sleep(interval)
+                continue
+            except aiohttp.ClientResponseError as e:
+                if hasattr(e, "message"):
+                    _LOGGER.debug(f"Cannot connect. Message: {e.message}. Retrying in {interval} seconds")
+                else:
+                    _LOGGER.debug(f"Cannot connect. Retrying in {interval} seconds")
                 await asyncio.sleep(interval)
                 continue
         else:
