@@ -1,14 +1,17 @@
 """A mixin containing token related methods."""
 
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import hashlib
+import json
 import logging
 import types
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Final, NoReturn
 
 from Crypto.Hash import HMAC, SHA1, SHA256
@@ -49,7 +52,16 @@ class TokensMixin(MiniserverProtocol):
     Do not instantiate this. It is intended only to be mixed in to the Miniserver class."""
 
     async def _acquire_token(self) -> None:
-        """Acquire a new authentication token from the Miniserver"""
+        """Acquire a new authentication token from the token store (if any), or
+        from the Miniserver"""
+        if self._token_store:
+            _LOGGER.debug("Acquiring token from token store")
+            with contextlib.suppress(json.JSONDecodeError):
+                token = json.load(self._token_store)
+                self._token.token = token["token"]
+                self._token.valid_until = token["validUntil"]
+                self._token.key = token["key"]
+                return
         _LOGGER.debug("Acquiring token from miniserver")
         command = f"jdev/sys/getkey2/{self._user}"
         # There is no need for this to be encrypted, if TLS is used, but the docs suggest
@@ -102,6 +114,8 @@ class TokensMixin(MiniserverProtocol):
             self._token.token = message.value_as_dict["token"]
             self._token.valid_until = message.value_as_dict["validUntil"]
             lifetime = self._token.seconds_to_expire()
+            if self._token_store:
+                json.dump(asdict(self._token), self._token_store)
             await asyncio.sleep(lifetime * 0.8)  # Renew after 80% lifetime, to be safe
 
     async def _check_token(self) -> None:

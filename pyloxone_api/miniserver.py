@@ -14,7 +14,7 @@ import logging
 import types
 import urllib.parse
 from base64 import b64decode, b64encode
-from typing import Any, Coroutine, Iterable, NoReturn
+from typing import Any, Coroutine, Iterable, NoReturn, TextIO
 
 from aiohttp import ClientSession, ClientWebSocketResponse
 from Crypto.Cipher import AES
@@ -42,6 +42,8 @@ class Miniserver(ConnectorMixin, TokensMixin):
         port: int = 80,
         user: str = "",
         password: str = "",
+        *,
+        token_store: TextIO | None = None,
         visual_password: str = "",
         use_tls: bool = False,
     ):
@@ -51,6 +53,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._password = password
         self._visual_password = visual_password or password  # Default to password
         self._token = LoxoneToken()
+        self._token_store = token_store
         self._use_tls = use_tls
         # If use_tls is True, certificate hostnames will be checked. This means
         # that an IP address cannot be used as a hostname. Set
