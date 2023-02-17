@@ -12,6 +12,8 @@ import asyncio
 import hashlib
 import logging
 import types
+import dataclasses
+import binascii
 import urllib.parse
 from base64 import b64decode, b64encode
 from typing import Any, Coroutine, Iterable, NoReturn, TextIO
@@ -21,16 +23,16 @@ from Crypto.Cipher import AES
 from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.Util import Padding
 
-from pyloxone_api.connector import ConnectorMixin
-from pyloxone_api.exceptions import LoxoneCommandError, LoxoneException
-from pyloxone_api.message import (
+from .connector import ConnectorMixin
+from .exceptions import LoxoneCommandError, LoxoneException
+from .message import (
     BaseMessage,
     MessageType,
     TextMessage,
     parse_header,
     parse_message,
 )
-from pyloxone_api.tokens import LoxoneToken, TokensMixin
+from .tokens import LoxoneToken, TokensMixin
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,8 +44,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         port: int = 80,
         user: str = "",
         password: str = "",
-        *,
-        token_store: TextIO | None = None,
+        token_store: dict | None = None,
         visual_password: str = "",
         use_tls: bool = False,
     ):
@@ -52,8 +53,22 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._user = user
         self._password = password
         self._visual_password = visual_password or password  # Default to password
-        self._token = LoxoneToken()
-        self._token_store = token_store
+
+        if token_store:
+            token = token_store.get("token", "")
+            valid_until = token_store.get("valid_until", 0)
+            key = token_store.get("key", "")
+            hash_alg = token_store.get("hash_alg", "")
+            self._token = LoxoneToken(token=token, valid_until=valid_until, key=key, hash_alg=hash_alg)
+            self.has_token = True
+            self._hash_alg = hash_alg
+            if self._token.seconds_to_expire() < 3600:
+                self.has_token = False
+                self._token = LoxoneToken()
+        else:
+            self.has_token = False
+            self._token = LoxoneToken()
+
         self._use_tls = use_tls
         # If use_tls is True, certificate hostnames will be checked. This means
         # that an IP address cannot be used as a hostname. Set
@@ -120,6 +135,10 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._visual_password = visual_password
 
     @property
+    def token_dict(self) -> dict:
+        return dataclasses.asdict(self._token, dict_factory=dict)
+
+    @property
     def version(self) -> list[int]:
         """The Miniserver software version, as a list of ints eg [12,0,1,2]"""
         return [int(x) for x in self._version.split(".")] if self._version else []
@@ -141,7 +160,20 @@ class Miniserver(ConnectorMixin, TokensMixin):
         self._run_in_background(self._process_message())
         await self._generate_and_pass_key()
         self._generate_salt()
-        await self._acquire_token()
+
+        if self.has_token:
+            try:
+                await self._use_token()
+            except LoxoneCommandError as exp:
+                if exp.code == 401:
+                    _LOGGER.debug("Token is invalid or expired! Try to reconnect and aquire new token.")
+                    self.has_token = False
+                    self._token = LoxoneToken()
+                    await self.close()
+                    await self.connect()
+        else:
+            await self._acquire_token()
+
         self._run_in_background(self._update_salt())
         self._run_in_background(self._keep_alive())
         self._run_in_background(self._refresh_token())
@@ -195,29 +227,29 @@ class Miniserver(ConnectorMixin, TokensMixin):
         cmd = f"jdev/sys/getvisusalt/{self._user}"
         message = await self._send_text_command(cmd, encrypted=True)
 
-        visu_key = message.value_as_dict["key"]
-        visu_salt = message.value_as_dict["salt"]
-        visu_hash_alg = message.value_as_dict.get("hashAlg", None)
+        visual_key = message.value_as_dict["key"]
+        visual_salt = message.value_as_dict["salt"]
+        visual_hash_alg = message.value_as_dict.get("hashAlg", None)
 
-        if visu_hash_alg == "SHA1":
+        if visual_hash_alg == "SHA1":
             algorithm = hashlib.sha1()
             hash_module = SHA1
-        elif visu_hash_alg == "SHA256":
+        elif visual_hash_alg == "SHA256":
             algorithm = hashlib.sha256()
             hash_module = SHA256
         else:
-            _LOGGER.error(f"Unrecognised hash algorithm: {visu_hash_alg}")
-            raise LoxoneException(f"Unrecognised hash algorithm: {visu_hash_alg}")
-        algorithm.update(f"{self._visual_password}:{visu_salt}".encode("utf-8"))
+            _LOGGER.error(f"Unrecognised hash algorithm: {visual_hash_alg}")
+            raise LoxoneException(f"Unrecognised hash algorithm: {visual_hash_alg}")
+        algorithm.update(f"{self._visual_password}:{visual_salt}".encode("utf-8"))
         pw_hash = algorithm.hexdigest().upper()
         # pw_hash = f"{self._user}:{pw_hash}".encode("utf-8")
         digester = HMAC.new(
-            bytes.fromhex(visu_key),
+            bytes.fromhex(visual_key),
             f"{pw_hash}".encode("utf-8"),
             digestmod=hash_module,
         )
-        visu_hash = digester.hexdigest()
-        cmd = f"jdev/sps/ios/{visu_hash}/{uuid}/{command}"
+        visual_hash = digester.hexdigest()
+        cmd = f"jdev/sps/ios/{visual_hash}/{uuid}/{command}"
         _LOGGER.debug(f"Send secured control command: {cmd}")
         return await self._send_text_command(cmd)
 
@@ -248,7 +280,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
 
         _task = asyncio.create_task(task, name=task.__name__)
         # If an exception occurs in a task, it is considered done, so we add a
-        # callback which can re-rasise any exceptions in the context of the main
+        # callback which can re-raise any exceptions in the context of the main
         # co-routine
         _task.add_done_callback(handle_errors)
         self._background_tasks.append(_task)
@@ -291,7 +323,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         # same as the command.
         message = await self._get_message([MessageType.TEXT], expected_control)
         assert isinstance(message, TextMessage)
-        # Sometimes the minserver responds with "/dev ..." in the control,
+        # Sometimes the miniserver responds with "/dev ..." in the control,
         # even though the command was "/jdev ...". We need to check for both.
         if message.control not in [expected_control, expected_control[1:]]:
             raise LoxoneException(
@@ -348,7 +380,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         """Close and re-open the connection, following a Miniserver reboot."""
 
         async def _do_restart() -> None:
-            await asyncio.sleep(10)  # Maybe we do not need this. But for safty we leave it for now.
+            await asyncio.sleep(10)  # Maybe we do not need this. But for safety we leave it for now.
             await self.connect()
             await self.enable_state_updates()
 
@@ -389,7 +421,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
         #
         # > As mentioned in the chapter on how to setup a connection, messages
         # > sent by the Miniserver are always prequeled by a binary message that
-        # > contains a MessageHeader. So at ﬁrst you’ll receive the binary
+        # > contains a MessageHeader. So at first you’ll receive the binary
         # > Message-Header and then the payload follows in a separate message.
         #
         # But this is not quite right because the docs also say, for an
