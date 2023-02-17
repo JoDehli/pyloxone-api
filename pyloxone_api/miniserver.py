@@ -16,23 +16,23 @@ import dataclasses
 import binascii
 import urllib.parse
 from base64 import b64decode, b64encode
-from typing import Any, Coroutine, Iterable, NoReturn, TextIO
+from typing import Any, Coroutine, Iterable, NoReturn
 
 from aiohttp import ClientSession, ClientWebSocketResponse
 from Crypto.Cipher import AES
 from Crypto.Hash import HMAC, SHA1, SHA256
 from Crypto.Util import Padding
 
-from .connector import ConnectorMixin
-from .exceptions import LoxoneCommandError, LoxoneException
-from .message import (
+from pyloxone_api.connector import ConnectorMixin
+from pyloxone_api.exceptions import LoxoneCommandError, LoxoneException
+from pyloxone_api.message import (
     BaseMessage,
     MessageType,
     TextMessage,
     parse_header,
     parse_message,
 )
-from .tokens import LoxoneToken, TokensMixin
+from pyloxone_api.tokens import LoxoneToken, TokensMixin
 
 _LOGGER = logging.getLogger(__name__)
 
