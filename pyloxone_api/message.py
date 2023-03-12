@@ -9,7 +9,7 @@ import uuid
 from enum import IntEnum
 from typing import Any
 
-from pyloxone_api.exceptions import LoxoneException
+from .exceptions import LoxoneException
 
 
 class LoxoneResponse:
