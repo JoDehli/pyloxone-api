@@ -457,7 +457,7 @@ class Miniserver(ConnectorMixin, TokensMixin):
                         self._message_queue.remove(message)
                         future.set_result(message)
                         break
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.1)
 
     # ---------------------------------------------------------------------------- #
     #                         Context manager magic methods                        #
