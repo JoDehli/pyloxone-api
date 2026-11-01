@@ -1,10 +1,15 @@
-"""Tests for the ``--format web`` view of the pyloxone-cli.
+"""Tests for the live web view (``dev_tools/web_ui.py``).
 
 The page is rendered entirely in Python (aiohttp) and uses a plain HTML
 ``meta http-equiv="refresh"`` for live values - no JavaScript anywhere.
 """
 
-import pyloxone_api.__main__ as cli
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dev_tools"))
+
+import web_ui as cli  # noqa: E402
 
 STRUCTURE = {
     "controls": {
