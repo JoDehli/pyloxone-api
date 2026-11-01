@@ -36,6 +36,11 @@ Everything else is internal and may change between releases.
 Version 0.3.0 is a complete rewrite of the 0.2.x series and is not
 API-compatible with it.
 
+## Documentation
+
+- [Callbacks](docs/CALLBACKS.md): what the library calls back into, when, and what happens on errors.
+- [Live web view](dev_tools/README.md): a developer tool that shows a Miniserver's structure and live values in the browser.
+
 ## Development
 
 We use [uv](https://docs.astral.sh/uv/) for environments and builds,
