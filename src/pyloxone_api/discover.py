@@ -54,3 +54,48 @@ async def discover(timeout: int = 5) -> tuple[str, int, str] | None:
                     ip, port = found.groups()
                     return ip, int(port), response
             return None
+
+
+async def discover_all(timeout: int = 5) -> list[tuple[str, int, str]]:
+    """
+    Find all miniservers on the local network that answer within `timeout` seconds.
+
+    Returns a list of (IPv4_address, port, response) tuples, one per distinct
+    address and port, in the order their replies arrived. The list is empty if
+    no miniserver answered. Unlike :func:`discover`, it waits for the full
+    timeout so that several miniservers can be collected.
+    """
+    r = re.compile(r"^LoxLIVE:.* ((?:[0-9]{1,3}\.){3}[0-9]{1,3}):(\d+) ")
+    loop = asyncio.get_running_loop()
+    found: list[tuple[str, int, str]] = []
+    seen: set[tuple[str, int]] = set()
+
+    with socket.socket(
+        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
+    ) as read_sock:
+        read_sock.setblocking(False)
+        read_sock.bind(("0.0.0.0", 7071))
+        with socket.socket(
+            socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
+        ) as write_sock:
+            write_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            for _ in range(3):
+                write_sock.sendto(b"\x00", ("255.255.255.255", 7070))
+
+            deadline = loop.time() + timeout
+            while (remaining := deadline - loop.time()) > 0:
+                try:
+                    data = await wait_for(loop.sock_recv(read_sock, 1024), remaining)
+                except asyncio.TimeoutError:
+                    break
+                response = data.decode(errors="replace")
+                match = re.match(r, response)
+                if match is None:
+                    continue
+                ip, port = match.group(1), int(match.group(2))
+                if (ip, port) in seen:
+                    continue
+                seen.add((ip, port))
+                found.append((ip, port, response))
+    return found
+
