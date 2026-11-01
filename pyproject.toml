@@ -1,44 +1,46 @@
-[tool.poetry]
-authors = ["Joachim Dehli", "Lawrence Akka"]
-description = "A package for interacting at a low(ish) level with a Loxone miniserver via the Loxone websocket API"
-exclude = ["pyloxone_api/lox_token.cfg"]
-homepage = "https://github.com/JoDehli/pyloxone-api"
-license = "Apache-2.0"
-name = "pyloxone_api"
-repository = "https://github.com/JoDehli/pyloxone-api"
-version = "0.2.4"
-# Trove classifiers for PyPI. Licence and Language are set
-# automatically
-classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Intended Audience :: End Users/Desktop",
-  "Intended Audience :: Developers",
-  "Operating System :: OS Independent",
-  "Topic :: Home Automation",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyloxone-api"
+version = "0.3.0"
+description = "Low-level async client for the Loxone Miniserver WebSocket API"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+authors = [{ name = "Joachim Dehli" }]
+keywords = ["loxone", "miniserver", "home-automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Topic :: Home Automation",
+]
+# Lower bounds and major-version guards only. Home Assistant 2026.9.1 pins
+# aiohttp==3.14.3 and requires websockets>=15.0.1; keep ranges wide enough
+# to contain those pins so both can be installed in the same environment.
+dependencies = [
+    "aiohttp>=3.14.3,<4",
+    "websockets>=15.0.1,<17",
+    "pycryptodome>=3.20,<5",
+]
 
-[tool.poetry.dependencies]
-httpx = "^0.19.0"
-pycryptodome = "^3.10.1"
-python = "^3.8"
-websockets = "^9.0.1"
-
-[tool.poetry.dev-dependencies]
-black = "^21.5b1"
-flake8 = "^3.9.2"
-pylint = "^2.8.2"
-pytest = "^6.2.4"
-pytest-asyncio = "^0.15.1"
-pytest-httpx = "^0.13.0"
-
-[tool.poetry.urls]
+[project.urls]
+Homepage = "https://github.com/JoDehli/pyloxone-api"
+Repository = "https://github.com/JoDehli/pyloxone-api"
 "Bug Tracker" = "https://github.com/JoDehli/pyloxone-api/issues"
 
-[tool.isort]
-multi_line_output = 3
-profile = "black"
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
 
-[build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core>=1.0.0"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyloxone_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-m 'not online'"
+markers = ["online: needs network access to a Loxone Miniserver"]

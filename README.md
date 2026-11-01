@@ -1,50 +1,47 @@
-Pyloxone-api
-============
+# pyloxone-api
 
-A Python API for communicating with a [Loxone](http://www.loxone.com)
-miniserver.
- 
- 
+Low-level asynchronous client for the **Loxone Miniserver** WebSocket API.
+It handles the HTTP bootstrap, WebSocket connection, authentication
+(token and key exchange), commands and state events. It has no dependency
+on Home Assistant.
 
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pyloxone-api?style=flat-square)
-![PyPI - License](https://img.shields.io/pypi/l/pyloxone-api?style=flat-square)
-[![PyPI](https://img.shields.io/pypi/v/pyloxone-api?style=flat-square)](https://pypi.python.org/pypi/pyloxone-api/)
- 
- 
- 
+Used by the [PyLoxone](https://github.com/JoDehli/PyLoxone) Home Assistant
+integration.
 
-Development
-===========
+## Installation
 
-We use [Poetry](https://python-poetry) for package and environment management,
-[Black](https://pypi.org/project/black/) and [isort](https://pypi.org/project/isort/)
-for code formatting, and [Pytest](https://pytest.org) for testing.
+```bash
+pip install pyloxone-api
+```
 
-* Install [Poetry](https://python-poetry)
+Requires Python 3.14 or newer.
 
-* Clone the project from Github, and use `Poetry` to install a virtual
-  environment and all dependencies:
-    ```shell
-    > git clone https://github.com/jodehli/pyloxone-api
-    > cd pyloxone-api
-    > poetry install
-    ```
+## Usage
 
-* Activate the virtual environment and create a shell:
-    ```shell
-    > poetry shell
-    ```
+```python
+from pyloxone_api import LoxoneConnection, LoxoneException
 
-* To test, make sure the virtual environment is activiated, and run `pytest`:
-    ```shell
-    > pytest
-    ```
+connection = LoxoneConnection(host, port, username, password, ...)
+```
 
-* There are some tests which require a live miniserver on the network. They are
-  slower, and are not run by default. Be careful with these tests—they might
-  make your miniserver behave oddly. To run them, you must specify appropriate
-credentials, eg:
+The public API is exported from `pyloxone_api` (see `__all__`).
+Everything else is internal and may change between releases.
 
-  ```bash
-  > pytest --host=192.168.1.100 --port=80  --username=admin --password=admin
-  ```
+Version 0.3.0 is a complete rewrite of the 0.2.x series and is not
+API-compatible with it.
+
+## Development
+
+```bash
+pip install -e .
+pip install pytest pytest-asyncio
+pytest                 # online tests (need a Miniserver) are skipped
+pytest -m online       # run them against a real Miniserver
+```
+
+Dependency ranges are kept wide enough to install alongside Home Assistant
+2026.9.1 (`aiohttp==3.14.3`, `websockets>=15.0.1`).
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
