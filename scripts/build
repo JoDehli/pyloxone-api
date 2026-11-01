@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# Build the pyloxone-api distribution (sdist and wheel) into dist/.
+# Nothing is uploaded. Publishing is a separate, manual step.
+#
+# Usage:
+#   ./scripts/build
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "ERROR: uv not found in PATH." >&2
+    exit 1
+fi
+
+rm -rf dist build
+uv build --out-dir dist
+
+echo
+echo "Built:"
+ls -1 dist
+
+# Metadata check, only if twine is available.
+if command -v twine >/dev/null 2>&1; then
+    echo
+    twine check dist/*
+fi
