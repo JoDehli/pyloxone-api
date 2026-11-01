@@ -16,6 +16,8 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Home Automation",
 ]
 # Lower bounds and major-version guards only. Home Assistant 2026.9.1 pins
