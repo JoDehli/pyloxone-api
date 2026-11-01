@@ -1,5 +1,11 @@
 # pyloxone-api
 
+A Python API for communicating with a [Loxone](https://www.loxone.com) Miniserver.
+
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pyloxone-api?style=flat-square)
+![PyPI - License](https://img.shields.io/pypi/l/pyloxone-api?style=flat-square)
+[![PyPI](https://img.shields.io/pypi/v/pyloxone-api?style=flat-square)](https://pypi.python.org/pypi/pyloxone-api/)
+
 Low-level asynchronous client for the **Loxone Miniserver** WebSocket API.
 It handles the HTTP bootstrap, WebSocket connection, authentication
 (token and key exchange), commands and state events. It has no dependency
@@ -32,15 +38,23 @@ API-compatible with it.
 
 ## Development
 
+We use [uv](https://docs.astral.sh/uv/) for environments and builds,
+and [pytest](https://pytest.org) for tests.
+
 ```bash
-pip install -e .
-pip install pytest pytest-asyncio
-pytest                 # online tests (need a Miniserver) are skipped
-pytest -m online       # run them against a real Miniserver
+uv sync --group dev        # create .venv with the package and dev tools
+uv run pytest              # tests; online tests are skipped by default
+uv run pytest -m online    # online tests, need a live Miniserver
 ```
 
-Dependency ranges are kept wide enough to install alongside Home Assistant
-2026.9.1 (`aiohttp==3.14.3`, `websockets>=15.0.1`).
+Online tests can make a Miniserver behave oddly. Run them only against a
+Miniserver you can afford to disturb.
+
+Build the sdist and wheel into `dist/`:
+
+```bash
+./scripts/build
+```
 
 ## License
 
