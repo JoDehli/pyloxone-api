@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#
+# Upload the pyloxone-api distribution to PyPI.
+#
+# Safety checks before anything is uploaded:
+#   - no uncommitted changes to tracked files
+#   - the git tag v<version> exists and points at HEAD
+#   - the version in pyproject.toml matches __version__
+#   - you type the version number to confirm
+#
+# The token is read from UV_PUBLISH_TOKEN (a PyPI API token). It is never
+# stored in this repository.
+#
+# Usage:
+#   UV_PUBLISH_TOKEN=pypi-... ./scripts/publish
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+
+command -v uv >/dev/null 2>&1 || fail "uv not found in PATH"
+[ -n "${UV_PUBLISH_TOKEN:-}" ] || fail "UV_PUBLISH_TOKEN is not set"
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    fail "uncommitted changes to tracked files; commit or stash first"
+fi
+
+VERSION="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+INIT_VERSION="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/pyloxone_api/__init__.py)"
+[ "$VERSION" = "$INIT_VERSION" ] || fail "pyproject.toml ($VERSION) and __init__.py ($INIT_VERSION) differ"
+
+TAG="v$VERSION"
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || fail "tag $TAG does not exist; create it first"
+[ "$(git rev-list -n1 "$TAG")" = "$(git rev-parse HEAD)" ] || fail "tag $TAG does not point at HEAD"
+
+./scripts/build
+
+echo
+echo "About to upload pyloxone-api $VERSION to PyPI:"
+ls -1 dist
+read -r -p "Type the version ($VERSION) to confirm: " answer
+[ "$answer" = "$VERSION" ] || fail "confirmation did not match, nothing uploaded"
+
+uv publish dist/*
+echo "Uploaded pyloxone-api $VERSION."
