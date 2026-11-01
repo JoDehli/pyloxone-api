@@ -1187,7 +1187,7 @@ class LoxoneConnection(LoxoneBaseConnection):
         await self.close()
 
     async def start_listening(
-        self, callback: Optional[Callable[[str, Any], Optional[Awaitable[None]]]] = None
+        self, callback: Optional[Callable[[dict[str, Any]], Any]] = None
     ) -> None:
         """Open, and start listening."""
 
