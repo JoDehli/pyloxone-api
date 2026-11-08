@@ -7,9 +7,11 @@ This is Handover 4.3, "Schritt 0". It is skipped unless both are true:
 
 The default run (``uv run pytest``) never touches a device.
 
-Credentials come from ``~/.config/rs-loxone/miniserver.env`` (``LOX_HOST``,
-``LOX_USER``, ``LOX_PASS``). Values are never printed, logged or written
-anywhere. Assertion messages contain no host or user names.
+Credentials come from the environment (``PYLOXONE_TEST_HOST``,
+``PYLOXONE_TEST_USER``, ``PYLOXONE_TEST_PASSWORD``) or from ``.env.live`` in the
+project root (git-ignored, mode 0600). See ``tests/live_config.py``. Values are
+never printed, logged or written anywhere. Assertion messages contain no host
+or user names.
 
 The only command sent is ``checktoken``, a read-only query. It is encrypted
 through ``jdev/sys/enc`` with PKCS#7 padding. Nothing is switched, and
@@ -21,33 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 
 import pytest
 
-ENV_FILE = Path.home() / ".config" / "rs-loxone" / "miniserver.env"
-DEFAULT_PORT = 8080
+from live_config import host_and_port, load_live_settings
 
 
-def _read_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :]
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def _host_and_port(value: str) -> tuple[str, int]:
-    if ":" in value:
-        host, _, port = value.rpartition(":")
-        if port.isdigit():
-            return host, int(port)
-    return value, DEFAULT_PORT
 
 
 live = pytest.mark.skipif(
@@ -60,17 +41,16 @@ live = pytest.mark.skipif(
 @live
 @pytest.mark.asyncio
 async def test_device_accepts_pkcs7_when_sending():
-    if not ENV_FILE.is_file():
-        pytest.skip("credentials file not found")
-    env = _read_env(ENV_FILE)
-    missing = [k for k in ("LOX_HOST", "LOX_USER", "LOX_PASS") if not env.get(k)]
-    if missing:
-        pytest.skip(f"credentials file lacks {', '.join(missing)}")
+    env, problem = load_live_settings()
+    if env is None:
+        pytest.skip(problem)
 
     from pyloxone_api.connection import LoxoneConnection
 
-    host, port = _host_and_port(env["LOX_HOST"])
-    conn = LoxoneConnection(host, env["LOX_USER"], env["LOX_PASS"], port=port)
+    host, port = host_and_port(env["PYLOXONE_TEST_HOST"])
+    conn = LoxoneConnection(
+        host, env["PYLOXONE_TEST_USER"], env["PYLOXONE_TEST_PASSWORD"], port=port
+    )
     listener: asyncio.Task | None = None
     try:
         await conn.open()

@@ -141,3 +141,5 @@ poetry.lock
 # Loxone
 lox_token.cfg
 Doku
+# Live device test settings (local only, never commit)
+.env.live

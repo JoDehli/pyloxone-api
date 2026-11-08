@@ -135,8 +135,9 @@ Prioritäten enthält. Die Punkte dort sind hier mit Nummern (4.x) referenziert.
    PYLOXONE_LIVE=1 uv run pytest -m online tests/test_live_device.py -s
    ```
 
-   Zugangsdaten kommen aus `~/.config/rs-loxone/miniserver.env` (`LOX_HOST`,
-   `LOX_USER`, `LOX_PASS`). Der Test gibt sie nicht aus. Er sendet nur
+   Zugangsdaten kommen aus der Umgebung (`PYLOXONE_TEST_HOST`, `PYLOXONE_TEST_USER`,
+   `PYLOXONE_TEST_PASSWORD`) oder aus `.env.live` im Projektordner (git-ignoriert, Modus 0600).
+   Der Test gibt sie nicht aus. Er sendet nur
    `checktoken`, also einen Lesebefehl mit PKCS#7-Padding. Geschaltet wird
    nichts, und `killtoken` wird nicht aufgerufen. Der Login legt wie bei jeder
    Verbindung ein Token auf dem Gerät an.

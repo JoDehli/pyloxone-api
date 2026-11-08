@@ -2740,7 +2740,9 @@ class TestAuthEscalation:
             '{"LL": {"code": 401, "control": "jdev/sys/getkey", "value": ""}}'
         )
         # Fire-and-forget, exactly like ``_dispatch_body`` does it.
-        conn._spawn_task(conn._websocket_event(message), name="loxone.event")
+        event_task = conn._spawn_task(
+            conn._websocket_event(message), name="loxone.event"
+        )
         # The text message sets the flag; the recv loop re-raises it.
         for _ in range(5):
             if conn._auth_failure is not None:
@@ -2753,6 +2755,11 @@ class TestAuthEscalation:
         conn._session_key = b"AAAA"
         with pytest.raises(LoxoneUnauthorisedError):
             await asyncio.wait_for(conn.start_listening(), timeout=5)
+
+        # The event task re-raises the same failure. Collect it here, so
+        # asyncio does not report it as "never retrieved" at shutdown.
+        with pytest.raises(LoxoneUnauthorisedError):
+            await event_task
 
     @pytest.mark.asyncio
     async def test_run_propagates_auth_failure_without_retry(self, monkeypatch):

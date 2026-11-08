@@ -17,42 +17,22 @@ does, not what it should do:
   password, which issued a new token.
 - ``NO_AUTH``: no authentication within 30 s (for example a silent refusal).
 
-The credentials come from ``~/.config/rs-loxone/miniserver.env``. They are
-never printed. The second login issues one more token on the device. This test
-does not remove it, so clean up in the web UI if needed.
+The credentials come from the environment or from ``.env.live`` in the
+project root (see ``tests/live_config.py``). They are never printed. The
+second login issues one more token on the device. This test does not remove
+it, so clean up in the web UI if needed.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 
 import pytest
 
-ENV_FILE = Path.home() / ".config" / "rs-loxone" / "miniserver.env"
-DEFAULT_PORT = 8080
+from live_config import host_and_port, load_live_settings
 
 
-def _read_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :]
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def _host_and_port(value: str) -> tuple[str, int]:
-    if ":" in value:
-        host, _, port = value.rpartition(":")
-        if port.isdigit():
-            return host, int(port)
-    return value, DEFAULT_PORT
 
 
 live = pytest.mark.skipif(
@@ -78,17 +58,14 @@ async def _stop(conn, listener) -> None:
 @live
 @pytest.mark.asyncio
 async def test_killtoken_effect_on_token():
-    if not ENV_FILE.is_file():
-        pytest.skip("credentials file not found")
-    env = _read_env(ENV_FILE)
-    missing = [k for k in ("LOX_HOST", "LOX_USER", "LOX_PASS") if not env.get(k)]
-    if missing:
-        pytest.skip(f"credentials file lacks {', '.join(missing)}")
+    env, problem = load_live_settings()
+    if env is None:
+        pytest.skip(problem)
 
     from pyloxone_api.connection import LoxoneConnection
 
-    host, port = _host_and_port(env["LOX_HOST"])
-    user, password = env["LOX_USER"], env["LOX_PASS"]
+    host, port = host_and_port(env["PYLOXONE_TEST_HOST"])
+    user, password = env["PYLOXONE_TEST_USER"], env["PYLOXONE_TEST_PASSWORD"]
 
     # 1. Password login: the device issues a token for this test.
     first = LoxoneConnection(host, user, password, port=port)
