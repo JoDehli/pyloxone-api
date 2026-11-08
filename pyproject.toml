@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyloxone-api"
-version = "0.3.0"
+version = "0.4.0"
 description = "Low-level async client for the Loxone Miniserver WebSocket API"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -36,6 +36,15 @@ Repository = "https://github.com/JoDehli/pyloxone-api"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.hatch.build.targets.sdist]
+# Working notes and device-specific files must never reach PyPI.
+exclude = [
+    "HANDOVER-pyloxone-api.md",
+    "UEBERGABE-AENDERUNGEN.md",
+    "1700_Structure-File.txt",
+    "CommunicatingWithMiniserver.txt",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyloxone_api"]
