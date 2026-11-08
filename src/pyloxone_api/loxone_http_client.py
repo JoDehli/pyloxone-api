@@ -90,7 +90,11 @@ class LoxoneAsyncHttpClient:
         url = f"{self.base_url}{endpoint}"
         _LOGGER.debug(f"Making GET request to: {url}")
         request_kwargs = {
-            "auth": aiohttp.BasicAuth(self.username, self.password, encoding="utf-8"),
+            "headers": {
+                "Authorization": aiohttp.encode_basic_auth(
+                    self.username, self.password, encoding="utf-8"
+                )
+            },
             "timeout": aiohttp.ClientTimeout(total=self.timeout),
         }
         if self.scheme == "https":
