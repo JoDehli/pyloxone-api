@@ -143,3 +143,6 @@ lox_token.cfg
 Doku
 # Live device test settings (local only, never commit)
 .env.live
+
+# Internal development notes (not part of the repository)
+UEBERGABE-AENDERUNGEN.md
