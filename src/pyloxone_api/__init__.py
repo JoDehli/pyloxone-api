@@ -6,6 +6,7 @@ releases.
 """
 
 from .connection import LoxoneBaseConnection, LoxoneConnection
+from .token_store import TokenStore
 from .exceptions import (
     ConnectionFailure,
     HttpApiError,
@@ -51,6 +52,7 @@ __all__ = [
     "LoxoneUnrecognizedCommandError",
     "MessageError",
     "ResponseError",
+    "TokenStore",
     "UnauthorizedError",
     "__version__",
 ]

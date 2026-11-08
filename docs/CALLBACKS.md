@@ -8,6 +8,7 @@ keeps running.
 |---|---|---|---|---|
 | `LoxoneConnection(...)` | `executor` | `executor(target, *args)` | must return an awaitable | invalid JSON raises `ValueError`, any other failure `RuntimeError`, both from the structure load |
 | `LoxoneConnection(...)` | `token_change_callback` | `token_dict` (dict) | either | logged as WARNING, never raised |
+| `LoxoneConnection(...)` | `token_store` | `save(token)` / `load()` (see [TOKEN-STORE.md](TOKEN-STORE.md)) | sync | logged as WARNING, never raised |
 | `run(...)` | `on_state` | `state` (str) | either | logged as WARNING, never raised |
 | `run(...)` / `start_listening(...)` | `callback` | `msg.as_dict()` (dict) | either | logged as ERROR with traceback, never raised |
 

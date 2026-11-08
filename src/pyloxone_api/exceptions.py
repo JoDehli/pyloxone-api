@@ -24,6 +24,21 @@ class LoxoneConnectionError(Exception):
     """Raised the network connection is interrupted"""
 
 
+class LoxoneNoEventSlotsError(LoxoneConnectionError):
+    """The Miniserver reports ``hasEventSlots: false`` (no free event slot).
+
+    Retryable, but with the long wait used for close codes 4007 and 4008:
+    reconnecting at once cannot succeed until a slot is free.
+    """
+
+
+class LoxoneRemoteAccessDeniedError(LoxoneException):
+    """``local_only=True`` and the Miniserver answers as a remote connection.
+
+    Final: ``run()`` does not retry it.
+    """
+
+
 class LoxoneHTTPStatusError(LoxoneException):
     """An exception indicating an unusual http response from the miniserver"""
 

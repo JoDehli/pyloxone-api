@@ -32,7 +32,8 @@ from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 from Crypto.Util import Padding
 
-from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_ENABLE_UPDATES,
+from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_CHECK_TOKEN, CMD_ENABLE_UPDATES,
+                    CMD_GET_API_CONFIG,
                     CMD_GET_API_KEY, CMD_GET_KEY, CMD_GET_KEY_AND_SALT,
                     CMD_GET_PUBLIC_KEY, CMD_GET_VISUAL_PASSWD, CMD_KEEP_ALIVE,
                     CMD_KEY_EXCHANGE, CMD_KILL_TOKEN, CMD_REFRESH_TOKEN,
@@ -45,7 +46,9 @@ from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_ENABLE_UPDATES,
                     SECURED_COMMAND_TIMEOUT, TIMEOUT,
                     TOKEN_PERMISSION, TOKEN_REFRESH_MAX_FAILURES,
                     WEBSOCKET_CLOSE_TIMEOUT, WEBSOCKET_READ_TIMEOUT)
+from .token_store import TokenStore, make_binding, token_from_store
 from .exceptions import (LoxoneAuthEscalatedError,
+                         LoxoneNoEventSlotsError, LoxoneRemoteAccessDeniedError,
                          LoxoneConnectionClosedOk, LoxoneConnectionError,
                          LoxoneException, LoxoneMaxNumOfConnectionsError,
                          LoxoneOutOfServiceException,
@@ -101,6 +104,7 @@ _AUTH_COMMANDS = frozenset(
         "refreshtoken",
         "authwithtoken",
         "killtoken",
+        "checktoken",
     }
 )
 
@@ -194,6 +198,29 @@ FATAL_CLOSE_CODES: dict[int, str] = {
     4003: "user is blocked after too many failed login attempts",
     4006: "user is disabled",
 }
+
+
+# Replies to ``authwithtoken`` that mean "this token is no good". A killed
+# token was measured to get 401 (live probe, 2026-11-08). 404 for unknown
+# tokens comes from Handover 8 and is not yet confirmed on the device.
+TOKEN_REJECTED_CODES: frozenset[int] = frozenset({401, 404})
+
+def _strip_padding(plain: bytes) -> bytes:
+    """Remove the padding of a decrypted reply, tolerating both styles.
+
+    A tail that is valid PKCS#7 (count ``n`` in 1..16, last ``n`` bytes all
+    ``n``) is removed. Anything else is left as it is, so the caller removes
+    trailing zero bytes only. Replies with zero padding therefore decrypt,
+    and a last byte of 0x00 is not an error.
+
+    Known limit: plaintext that really ends in valid control bytes would be
+    truncated. Loxone replies are text, so this does not occur in practice.
+    """
+    if plain:
+        n = plain[-1]
+        if 1 <= n <= 16 and n <= len(plain) and plain[-n:] == bytes([n]) * n:
+            return plain[:-n]
+    return plain
 
 
 def _raise_if_fatal_close(exc: websockets.exceptions.ConnectionClosed) -> None:
@@ -323,8 +350,10 @@ class LoxoneBaseConnection:
         port: int = 8080,
         timeout: Optional[float] = None,
         verify_ssl: bool = True,
+        local_only: bool = False,
         executor: Optional[Callable[..., Any]] = None,
         token_change_callback: Optional[Callable[..., Any]] = None,
+        token_store: Optional[TokenStore] = None,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -355,6 +384,8 @@ class LoxoneBaseConnection:
         self.port = port
         self.timeout = None if timeout == 0 else timeout
         self.verify_ssl = verify_ssl
+        # Refuse a Miniserver that answers as a remote (non-local) connection.
+        self.local_only = local_only
         # Optional executor for off-loading blocking work (e.g.
         # ``json.loads`` of the multi-MB ``LoxAPP3.json``) off the
         # event loop. Shape matches ``hass.async_add_executor_job``
@@ -372,6 +403,8 @@ class LoxoneBaseConnection:
         self._tasks: set[asyncio.Task] = set()
         self._closed = False
         self._key_update_event: Optional[asyncio.Event] = None
+        # Set by check_token() while it waits for the checktoken reply.
+        self._checktoken_waiter: Optional[asyncio.Future] = None
         self._shutdown_event = asyncio.Event()
         self._reconnect_event: asyncio.Event = asyncio.Event()
         # Set by the token handler once the first ``gettoken`` /
@@ -500,6 +533,18 @@ class LoxoneBaseConnection:
             _LOGGER.error(f"Failed to initialize token: {e}")
             self._token = LoxoneToken()
 
+        # Optional application-side persistence (see token_store.py).
+        # ``token=`` and ``token_store=`` are alternatives: passing both
+        # would leave it unclear which token wins.
+        if token is not None and token_store is not None:
+            raise ValueError("Pass either token or token_store, not both")
+        self._token_store: Optional[TokenStore] = token_store
+        self._token_binding: dict[str, Any] = make_binding(
+            self.url, self.port, self.username
+        )
+        if token is None and token_store is not None:
+            self._token = self._load_from_token_store()
+
         self._key: str = ""
         self._user_salt: str = ""
         self._hash_alg: str = ""
@@ -617,6 +662,7 @@ class LoxoneBaseConnection:
             _LOGGER.debug("Token reset successfully")
         except Exception as e:
             _LOGGER.error(f"Failed to reset token: {e}")
+        self._save_token_to_store(None)
 
     async def _send_text_command(
         self, command: str = "", encrypted: bool = False
@@ -777,9 +823,8 @@ class LoxoneBaseConnection:
         decoded = b64decode(enc_text)
         aes_cipher = AES.new(self._aes_key, AES.MODE_CBC, self._iv)
         decrypted = aes_cipher.decrypt(decoded)
-        unpadded = Padding.unpad(decrypted, 16)
         # The miniserver seems to terminate the text with a zero byte
-        return unpadded.rstrip(b"\x00")
+        return _strip_padding(decrypted).rstrip(b"\x00")
 
     def _generate_salt(self) -> None:
         try:
@@ -876,6 +921,31 @@ class LoxoneBaseConnection:
                 if self._key_update_event is key_updated_event:
                     self._key_update_event = None
 
+    def _load_from_token_store(self) -> LoxoneToken:
+        """Read the stored token; any problem means "no token"."""
+        try:
+            token = token_from_store(
+                self._token_store.load(), self._token_binding
+            )
+        except Exception as e:
+            _LOGGER.warning("token_store.load failed, starting without token: %s", e)
+            token = None
+        return token if token is not None else LoxoneToken()
+
+    def _save_token_to_store(self, token: Optional[dict]) -> None:
+        """Hand the token to the application; ``None`` means reset.
+
+        Failures are logged, never raised: a persistence error must not
+        break the websocket path.
+        """
+        if self._token_store is None:
+            return
+        try:
+            data = None if token is None else {**token, "binding": self._token_binding}
+            self._token_store.save(data)
+        except Exception as e:
+            _LOGGER.warning("token_store.save failed: %s", e, exc_info=True)
+
     def _signal_token_changed(self) -> None:
         """Notify the integration that the token has changed.
 
@@ -890,6 +960,7 @@ class LoxoneBaseConnection:
         Failures are logged at WARNING, never raised — a
         persistence error must not break the websocket path.
         """
+        self._save_token_to_store(self.get_token_dict())
         if self._token_change_callback is None:
             return
         try:
@@ -920,9 +991,13 @@ class LoxoneBaseConnection:
         await coro
 
     async def kill_token(self) -> None:
-        """Invalidate the current token on the Miniserver.
+        """Send ``killtoken`` for the current token.
 
-        Sends ``jdev/sys/killtoken/<token>/<user>``. Both path
+        Sends ``jdev/sys/killtoken/<token>/<user>``. The Miniserver
+        documentation says a killed token is no longer usable. A live probe
+        on firmware 17.2.10.21 (2026-11-08) matched this: the token was not
+        accepted afterwards. An earlier probe had suggested the opposite,
+        and that result is not reproduced. Both path
         segments are required — without the user segment the
         Miniserver answers ``400`` and keeps the token usable
         (checked against a live Miniserver, JWT-era firmware).
@@ -958,6 +1033,38 @@ class LoxoneBaseConnection:
             await self._send_text_command(command, encrypted=True)
         except Exception as e:
             _LOGGER.warning("kill_token: failed to send: %s", e)
+
+    async def check_token(self, timeout: float = 15.0) -> bool:
+        """Ask the Miniserver whether the current token is still valid.
+
+        Sends ``jdev/sys/checktoken/<token>/<user>`` with the cleartext token
+        through command encryption. Returns True for code 200, False for any
+        other code (401, 400, ...) and on timeout. A 401 does not raise: an
+        invalid token is an answer, not a session failure.
+
+        Raises :class:`LoxoneTokenError` before authentication, because the
+        Miniserver only answers on an authenticated session.
+        """
+        if not self._authenticated_event.is_set() or not self._token.token:
+            raise LoxoneTokenError("Cannot check token before authentication")
+
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future = loop.create_future()
+        self._checktoken_waiter = waiter
+        try:
+            command = f"{CMD_CHECK_TOKEN}/{self._token.token}/{self._encoded_username}"
+            await self._send_text_command(command, encrypted=True)
+            code = await asyncio.wait_for(waiter, timeout)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("check_token: no reply within %.1fs", timeout)
+            return False
+        finally:
+            # Drop the waiter so a late reply cannot answer a later call.
+            if self._checktoken_waiter is waiter:
+                self._checktoken_waiter = None
+
+        _LOGGER.debug("check_token: reply code %s", code)
+        return code == 200
 
     def _hash_token(self):
         try:
@@ -2230,6 +2337,31 @@ class LoxoneConnection(LoxoneBaseConnection):
         assert last_exc is not None
         raise last_exc
 
+    def _check_local_only(self, local: bool) -> None:
+        """Refuse a remote Miniserver when ``local_only`` is set (final)."""
+        if not local and self.local_only:
+            raise LoxoneRemoteAccessDeniedError(
+                "Miniserver answered as a remote connection and local_only is set"
+            )
+
+    async def _check_event_slots(self, connector: Any) -> None:
+        """Preflight over ``jdev/cfg/api``: refuse when no event slot is free.
+
+        Only ``hasEventSlots == false`` is a verdict. A failed lookup or an
+        unreadable reply is not: the connection goes on as before.
+        """
+        try:
+            data, _ = await self._get_with_retry(CMD_GET_API_CONFIG, connector)
+            cfg = json.loads(LLResponse(data).value.replace("'", '"'))
+            has_slots = cfg.get("hasEventSlots")
+        except Exception as e:
+            _LOGGER.debug("Preflight jdev/cfg/api not usable, continuing: %s", e)
+            return
+        if has_slots is False:
+            raise LoxoneNoEventSlotsError(
+                "Miniserver reports no free event slot (hasEventSlots false)"
+            )
+
     async def open(
         self,
         session: aiohttp.ClientSession | None = None,
@@ -2308,6 +2440,8 @@ class LoxoneConnection(LoxoneBaseConnection):
             self.miniserver_serial = value.get("snr", "")
             local = value.get("local", True)
 
+            self._check_local_only(local)
+
             if not local:
                 try:
                     connector.base_url = (
@@ -2322,6 +2456,8 @@ class LoxoneConnection(LoxoneBaseConnection):
             # Get the structure file.  Use ``_get_with_retry`` so a
             # transient network blip during the structure-file fetch
             # doesn't fail the whole open().
+            await self._check_event_slots(connector)
+
             data, _ = await self._get_with_retry(LOXAPPPATH, connector)
 
             try:
@@ -3100,7 +3236,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             elif isinstance(mess_obj, TextMessage) and (
                 "authwithtoken" in mess_obj.message
             ):
-                if mess_obj.code == 401:
+                if mess_obj.code in TOKEN_REJECTED_CODES:
                     # Issue #514: 401 here is the *expected* first leg of the
                     # token-expiry self-heal flow — the cached token is
                     # stale, the integration resets it and falls back to
@@ -3123,6 +3259,16 @@ class LoxoneConnection(LoxoneBaseConnection):
                         )
                     except asyncio.TimeoutError:
                         _LOGGER.error("Timeout queueing authwithtoken command")
+
+            # Handle checktoken: hand the code to the waiting check_token().
+            # A reply with no waiter (timed out) is dropped, never kept for
+            # a later request.
+            elif isinstance(mess_obj, TextMessage) and "checktoken" in mess_obj.message:
+                waiter = self._checktoken_waiter
+                if waiter is not None and not waiter.done():
+                    waiter.set_result(mess_obj.code)
+                else:
+                    _LOGGER.debug("checktoken reply without a waiting caller")
 
             # Handle token refresh
             elif isinstance(mess_obj, TextMessage) and (

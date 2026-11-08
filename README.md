@@ -27,7 +27,18 @@ Requires Python 3.14 or newer.
 ```python
 from pyloxone_api import LoxoneConnection, LoxoneException
 
-connection = LoxoneConnection(host, port, username, password, ...)
+connection = LoxoneConnection(host, username, password, port=8080)
+```
+
+### Keeping the token between runs
+
+A token lets the library log in without the password. To keep it across
+restarts, pass a `token_store` object that saves and loads the token. The
+library never writes files itself. See [Saving the token](docs/TOKEN-STORE.md)
+for the protocol, the stored format and a JSON-file example.
+
+```python
+connection = LoxoneConnection(host, username, password, token_store=my_store)
 ```
 
 The public API is exported from `pyloxone_api` (see `__all__`).
@@ -39,6 +50,7 @@ API-compatible with it.
 ## Documentation
 
 - [Callbacks](docs/CALLBACKS.md): what the library calls back into, when, and what happens on errors.
+- [Saving the token](docs/TOKEN-STORE.md): keep the login token between restarts with `token_store`.
 - [Live web view](dev_tools/README.md): a developer tool that shows a Miniserver's structure and live values in the browser.
 
 ## Development

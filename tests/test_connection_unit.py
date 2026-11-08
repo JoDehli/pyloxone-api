@@ -3542,8 +3542,8 @@ class TestAuthReplyFilter:
 
     def test_auth_commands_are_matched_by_control_path(self):
         for control in (
-            "jdev/sys/getjwt/<hash>/admin/2/uuid/pyloxone_api",
-            "jdev/sys/getkey2/admin",
+            "jdev/sys/getjwt/<hash>/example-user/2/uuid/pyloxone_api",
+            "jdev/sys/getkey2/example-user",
             "dev/sys/getkey",
             "jdev/sps/getvisusalt/user",
             "jdev/sys/keyexchange/<pubkey>",

@@ -56,6 +56,8 @@ TOKEN_PERMISSION: Final = 2  # 2=web, 4=app
 
 TOKEN_REFRESH_RETRY_COUNT: Final = 5
 TOKEN_REFRESH_MAX_FAILURES: Final = 10  # consecutive failures before raising
+# A stored token is used only with more than this many seconds left.
+TOKEN_MIN_REMAINING_SECONDS: Final = 100
 # token will be refreshed 1 day before its expiration date
 TOKEN_REFRESH_SECONDS_BEFORE_EXPIRY: Final = (
     24 * 60 * 60
@@ -67,6 +69,8 @@ LOXAPPPATH: Final = "/data/LoxAPP3.json"
 
 CMD_KEEP_ALIVE: Final = "keepalive"
 CMD_GET_API_KEY: Final = "/jdev/cfg/apiKey"
+# Preflight: ``hasEventSlots`` lives here (``local`` is read from apiKey).
+CMD_GET_API_CONFIG: Final = "/jdev/cfg/api"
 CMD_GET_PUBLIC_KEY: Final = "/jdev/sys/getPublicKey"
 CMD_KEY_EXCHANGE: Final = "jdev/sys/keyexchange/"
 CMD_GET_KEY: Final = "jdev/sys/getkey"
@@ -77,6 +81,9 @@ CMD_AUTH_WITH_TOKEN: Final = "authwithtoken/"
 CMD_REFRESH_TOKEN: Final = "jdev/sys/refreshtoken/"
 CMD_REFRESH_TOKEN_JSON_WEB: Final = "jdev/sys/refreshjwt/"
 CMD_KILL_TOKEN: Final = "jdev/sys/killtoken"
+# Takes the cleartext token (not the hash). Only valid on an authenticated
+# session; before login the Miniserver answers 400.
+CMD_CHECK_TOKEN: Final = "jdev/sys/checktoken"
 CMD_ENCRYPT_CMD: Final = "jdev/sys/enc/"
 CMD_ENABLE_UPDATES: Final = "jdev/sps/enablebinstatusupdate"
 CMD_GET_VISUAL_PASSWD: Final = "jdev/sys/getvisusalt/"
