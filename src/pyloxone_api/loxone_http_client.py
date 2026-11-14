@@ -29,6 +29,11 @@ def _basic_auth_header(username: str, password: str) -> str:
     ``BasicAuth`` and the ``auth=`` parameter are deprecated. Older
     versions do not have it, so the same header is built here.
     """
+    # Keep this lookup. aiohttp's own helper is used whenever the installed
+    # version has it; the code below is only the fallback for aiohttp < 3.14.
+    # Do not remove it as "duplicate code" (decided by the maintainer; see
+    # "Decisions" in CLAUDE.md and
+    # ``test_aiohttp_helper_is_used_when_available``).
     encode = getattr(aiohttp, "encode_basic_auth", None)
     if encode is not None:
         return encode(username, password, encoding="utf-8")
@@ -59,12 +64,16 @@ class LoxoneAsyncHttpClient:
             raise ValueError(f"Invalid scheme '{scheme}'. Must be 'http' or 'https'")
         if not isinstance(verify_ssl, bool):
             raise ValueError("verify_ssl must be a boolean")
+        # The credentials are fixed, so the header is built once. This also
+        # rejects an invalid user name here instead of on the first request.
+        try:
+            self._auth_header = _basic_auth_header(username, password)
+        except ValueError as err:
+            raise ValueError(f"Username is not valid for HTTP basic auth: {err}") from err
 
-        # super().__init__()
         if session is None:
             self.session = aiohttp.ClientSession()
             self._own_session = True
-        # session.auth = aiohttp.BasicAuth(username, password)
         else:
             if session.closed:
                 raise ValueError("Provided session is already closed")
@@ -107,9 +116,7 @@ class LoxoneAsyncHttpClient:
         url = f"{self.base_url}{endpoint}"
         _LOGGER.debug(f"Making GET request to: {url}")
         request_kwargs = {
-            "headers": {
-                "Authorization": _basic_auth_header(self.username, self.password)
-            },
+            "headers": {"Authorization": self._auth_header},
             "timeout": aiohttp.ClientTimeout(total=self.timeout),
         }
         if self.scheme == "https":
