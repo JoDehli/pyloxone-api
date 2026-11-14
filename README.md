@@ -20,7 +20,7 @@ integration.
 pip install pyloxone-api
 ```
 
-Requires Python 3.14 or newer.
+Requires Python 3.13 or newer.
 
 ## Usage
 
