@@ -71,9 +71,11 @@ existing findings (mostly E501). New files should be clean.
 - 4007 (update) and 4008 (no event slots) use the normal backoff (at most 60 s).
   A fixed 300 s wait was dropped, because it delayed reconnects after an update.
 - HTTP basic auth is sent as an `Authorization` header, not through the
-  deprecated `auth=` parameter. `aiohttp.encode_basic_auth` exists only since
-  aiohttp 3.14; older versions get the same header from a fallback in
-  `loxone_http_client.py`.
+  deprecated `auth=` parameter. The header is built once per client in
+  `loxone_http_client.py`. `aiohttp.encode_basic_auth` is used when it exists
+  (aiohttp 3.14 and later); older versions get the same header from the
+  fallback. Keep the `getattr` lookup: do not remove it as duplicate code.
+  A test guards this.
 - The source distribution excludes internal notes (`[tool.hatch.build.targets.sdist]`).
   Internal notes do not belong in the repository.
 

@@ -392,7 +392,7 @@ class LoxoneBaseConnection:
         # (``async def executor(target, *args)`` → awaitable).
         # ``None`` (the default) means call the function inline.
         self.executor: Optional[Callable[..., Any]] = executor
-        self.connection: wslib.ClientConnection | None = None
+        self.connection: LoxoneClientConnection | None = None
         self._pending_task = []
         # Background tasks that should be tracked across the
         # connection's lifetime (fire-and-forget coroutines spawned
