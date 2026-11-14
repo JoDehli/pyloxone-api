@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyloxone-api"
-version = "0.4.0"
+version = "0.4.1"
 description = "Low-level async client for the Loxone Miniserver WebSocket API"
 readme = "README.md"
 license = "AGPL-3.0-only"
 license-files = ["LICENSE"]
-requires-python = ">=3.14.2"
+requires-python = ">=3.13"
 authors = [{ name = "Joachim Dehli" }]
 keywords = ["loxone", "miniserver", "home-automation"]
 classifiers = [
@@ -17,15 +17,18 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Home Automation",
 ]
-# Lower bounds and major-version guards only. Home Assistant 2026.9.1 pins
-# aiohttp==3.14.3 and requires websockets>=15.0.1; keep ranges wide enough
-# to contain those pins so both can be installed in the same environment.
+# Lower bounds and major-version guards only. Home Assistant pins aiohttp
+# exactly, so the ranges must contain the pins of every supported release:
+# from 2025.2.4 (Python 3.13, aiohttp==3.11.12) up to 2026.8.0
+# (Python 3.14, aiohttp==3.14.3). The lower bounds are the versions the
+# offline test suite was run against; do not lower them without testing.
 dependencies = [
-    "aiohttp>=3.14.3,<4",
-    "websockets>=15.0.1,<16",
+    "aiohttp>=3.11.12,<4",
+    "websockets>=14.0,<16",
     "pycryptodome>=3.20,<5",
 ]
 

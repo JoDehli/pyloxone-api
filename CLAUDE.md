@@ -9,8 +9,8 @@ pyloxone-api is an asynchronous Python library for the WebSocket API of the
 Loxone Miniserver (Gen 1 over `ws://`). It has no dependency on Home Assistant.
 The Home Assistant integration uses it, but lives in a separate project.
 
-- Python: `>=3.14.2`
-- Dependencies: `aiohttp`, `websockets` (`<16`), `pycryptodome`
+- Python: `>=3.13`
+- Dependencies: `aiohttp` (`>=3.11.12`), `websockets` (`>=14.0,<16`), `pycryptodome`
 - License: AGPL-3.0-only (since version 0.4.0). Earlier releases were Apache-2.0.
 - Public API: `pyloxone_api/__init__.py` (`__all__`). Everything else is internal.
 
@@ -71,7 +71,9 @@ existing findings (mostly E501). New files should be clean.
 - 4007 (update) and 4008 (no event slots) use the normal backoff (at most 60 s).
   A fixed 300 s wait was dropped, because it delayed reconnects after an update.
 - HTTP basic auth is sent as an `Authorization` header, not through the
-  deprecated `auth=` parameter.
+  deprecated `auth=` parameter. `aiohttp.encode_basic_auth` exists only since
+  aiohttp 3.14; older versions get the same header from a fallback in
+  `loxone_http_client.py`.
 - The source distribution excludes internal notes (`[tool.hatch.build.targets.sdist]`).
   Internal notes do not belong in the repository.
 

@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterable, Iterable, Union
 
-from websockets import ClientConnection
+# Not ``from websockets import ClientConnection``: websockets 14.0 does not
+# export the class at the top level yet.
+from websockets.asyncio.client import ClientConnection
 
 _LOGGER = logging.getLogger(__name__)
 
