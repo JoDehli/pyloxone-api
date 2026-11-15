@@ -41,13 +41,16 @@ from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_CHECK_TOKEN, CMD_ENAB
                     CMD_KEY_EXCHANGE, CMD_KILL_TOKEN, CMD_REFRESH_TOKEN,
                     CMD_REFRESH_TOKEN_JSON_WEB, CMD_REQUEST_TOKEN,
                     CMD_REQUEST_TOKEN_JSON_WEB, IV_BYTES, KEEP_ALIVE_PERIOD, LLRSP_UNAUTHORISED_CODES,
-                    CMD_GET_STRUCTURE_FILE, MAX_RECONNECT_DELAY, MAX_REFRESH_DELAY,
+                    CMD_GET_STRUCTURE_FILE, CMD_GET_STRUCTURE_VERSION,
+                    MAX_RECONNECT_DELAY, MAX_REFRESH_DELAY,
                     MAX_WEBSOCKET_MESSAGE_SIZE, MESSAGE_HEADER_SIZE,
                     RECONNECT_DELAY, RECONNECT_TRIES, SALT_BYTES,
                     SALT_MAX_AGE_SECONDS, SALT_MAX_USE_COUNT,
-                    SECURED_COMMAND_TIMEOUT, STRUCTURE_FILE_TIMEOUT, TIMEOUT,
+                    SECURED_COMMAND_TIMEOUT, STRUCTURE_FILE_TIMEOUT,
+                    STRUCTURE_VERSION_TIMEOUT, TIMEOUT,
                     TOKEN_PERMISSION, TOKEN_REFRESH_MAX_FAILURES,
                     WEBSOCKET_CLOSE_TIMEOUT, WEBSOCKET_READ_TIMEOUT)
+from .structure_cache import StructureCache, cached_structure_for
 from .token_store import TokenStore, make_binding, token_from_store
 from .exceptions import (LoxoneAuthEscalatedError,
                          LoxoneNoEventSlotsError, LoxoneRemoteAccessDeniedError,
@@ -362,6 +365,7 @@ class LoxoneBaseConnection:
         token_change_callback: Optional[Callable[..., Any]] = None,
         token_store: Optional[TokenStore] = None,
         forward_daytimer_weather: bool = False,
+        structure_cache: Optional[StructureCache] = None,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -382,6 +386,12 @@ class LoxoneBaseConnection:
             raise ValueError("verify_ssl must be a boolean")
         if not isinstance(forward_daytimer_weather, bool):
             raise ValueError("forward_daytimer_weather must be a boolean")
+        if structure_cache is not None and not (
+            callable(getattr(structure_cache, "load", None))
+            and callable(getattr(structure_cache, "save", None))
+        ):
+            raise ValueError("structure_cache needs load() and save() methods")
+        self._structure_cache: Optional[StructureCache] = structure_cache
 
         self.host = host
         self.username = username
@@ -527,6 +537,8 @@ class LoxoneBaseConnection:
         self._bootstrap_error: Optional[Exception] = None
         self._structure_fresh: bool = False
         self._structure_waiter: Optional[asyncio.Future] = None
+        # Receives the reply to ``jdev/sps/LoxAPPversion3``.
+        self._version_waiter: Optional[asyncio.Future] = None
 
         # Validate and initialize token
         try:
@@ -1800,7 +1812,24 @@ class LoxoneConnection(LoxoneBaseConnection):
         )
 
     async def _download_structure_file(self) -> None:
-        """``data/LoxAPP3.json`` over the websocket into ``structure_file``."""
+        """Fill ``structure_file`` for this session.
+
+        A kept file (in memory, else from ``structure_cache``) is used when
+        its ``lastModified`` equals the Miniserver's
+        ``jdev/sps/LoxAPPversion3``; otherwise ``data/LoxAPP3.json`` is
+        downloaded over the websocket and handed to the cache.
+        """
+        kept = self.structure_file if self.structure_file.get("lastModified") else None
+        if kept is None:
+            kept = await self._load_cached_structure()
+        if kept is not None:
+            version = await self._request_structure_version()
+            if version is not None and version == str(kept.get("lastModified")):
+                _LOGGER.debug("Structure file unchanged (%s); not downloading", version)
+                kept["softwareVersion"] = self.miniserver_version  # FIXME Legacy use only
+                self.structure_file = kept
+                return
+
         waiter = asyncio.get_running_loop().create_future()
         self._structure_waiter = waiter
         try:
@@ -1812,16 +1841,55 @@ class LoxoneConnection(LoxoneBaseConnection):
             # Often a few megabytes: parse off the event loop when an
             # executor was supplied (Home Assistant passes
             # ``hass.async_add_executor_job``).
-            if self.executor is not None:
-                structure = await self.executor(json.loads, data)
-            else:
-                structure = json.loads(data)
+            structure = await self._run_blocking(json.loads, data)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in structure file: {e}") from e
         if not isinstance(structure, dict):
             raise ValueError("Structure file is not a JSON object")
+        await self._save_cached_structure(structure)
         structure["softwareVersion"] = self.miniserver_version  # FIXME Legacy use only
         self.structure_file = structure
+
+    async def _request_structure_version(self) -> Optional[str]:
+        """``jdev/sps/LoxAPPversion3`` reply value, or ``None`` if none came."""
+        waiter = asyncio.get_running_loop().create_future()
+        self._version_waiter = waiter
+        try:
+            await self._send_text_command(CMD_GET_STRUCTURE_VERSION, encrypted=False)
+            return str(await asyncio.wait_for(waiter, timeout=STRUCTURE_VERSION_TIMEOUT))
+        except (asyncio.TimeoutError, TimeoutError):
+            _LOGGER.debug(
+                "No reply to %s; downloading the structure file",
+                CMD_GET_STRUCTURE_VERSION,
+            )
+            return None
+        finally:
+            self._version_waiter = None
+
+    async def _run_blocking(self, target, *args):
+        """Run ``target`` through the executor if one was supplied."""
+        if self.executor is not None:
+            return await self.executor(target, *args)
+        return target(*args)
+
+    async def _load_cached_structure(self) -> Optional[dict]:
+        if self._structure_cache is None:
+            return None
+        try:
+            data = await self._run_blocking(self._structure_cache.load)
+        except Exception as e:
+            _LOGGER.warning("structure_cache.load failed: %s", e)
+            return None
+        return cached_structure_for(data, self.miniserver_serial)
+
+    async def _save_cached_structure(self, structure: dict) -> None:
+        if self._structure_cache is None:
+            return
+        try:
+            # A copy: the library adds keys (softwareVersion) to its own.
+            await self._run_blocking(self._structure_cache.save, dict(structure))
+        except Exception as e:
+            _LOGGER.warning("structure_cache.save failed: %s", e, exc_info=True)
 
     async def _on_authenticated(self) -> None:
         """This session has logged in (authwithtoken / gettoken / getjwt).
@@ -3295,8 +3363,14 @@ class LoxoneConnection(LoxoneBaseConnection):
                     _LOGGER.error(f"Failed to decrypt control message: {e}")
                     return
 
+            # Reply to jdev/sps/LoxAPPversion3: hand the version to the waiter.
+            if isinstance(mess_obj, TextMessage) and "LoxAPPversion3" in mess_obj.message:
+                waiter = self._version_waiter
+                if waiter is not None and not waiter.done():
+                    waiter.set_result(mess_obj.value)
+
             # Handle key exchange
-            if isinstance(mess_obj, TextMessage) and "keyexchange" in mess_obj.message:
+            elif isinstance(mess_obj, TextMessage) and "keyexchange" in mess_obj.message:
                 _LOGGER.debug("Key exchange with miniserver...")
                 command = f"{CMD_GET_KEY_AND_SALT}/{self._encoded_username}"
                 try:

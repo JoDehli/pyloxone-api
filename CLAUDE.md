@@ -30,6 +30,7 @@ existing findings (mostly E501). New files should be clean.
 - `src/pyloxone_api/connection.py`: the core. Connection, login, the `run()`
   supervisor, commands, tokens, preflight.
 - `src/pyloxone_api/token_store.py`: the `TokenStore` protocol and validation of stored tokens.
+- `src/pyloxone_api/structure_cache.py`: the `StructureCache` protocol (optional persistence of LoxAPP3.json).
 - `src/pyloxone_api/const.py`, `exceptions.py`: constants and exceptions.
 - `src/pyloxone_api/loxone_http_client.py`: HTTP requests of the bootstrap (no credentials).
 - `docs/CALLBACKS.md`, `docs/TOKEN-STORE.md`: public documentation.

@@ -6,6 +6,7 @@ releases.
 """
 
 from .connection import LoxoneBaseConnection, LoxoneConnection
+from .structure_cache import StructureCache
 from .token_store import TokenStore
 from .exceptions import (
     ConnectionFailure,
@@ -52,6 +53,7 @@ __all__ = [
     "LoxoneUnrecognizedCommandError",
     "MessageError",
     "ResponseError",
+    "StructureCache",
     "TokenStore",
     "UnauthorizedError",
     "__version__",

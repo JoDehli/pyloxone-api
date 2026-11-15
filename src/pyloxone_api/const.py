@@ -73,6 +73,10 @@ LOXAPPPATH: Final = "/data/LoxAPP3.json"
 CMD_GET_STRUCTURE_FILE: Final = "data/LoxAPP3.json"
 # Seconds to wait for the structure file on the websocket.
 STRUCTURE_FILE_TIMEOUT: Final = 60
+# Version of the structure file (spec: compare with its "lastModified").
+CMD_GET_STRUCTURE_VERSION: Final = "jdev/sps/LoxAPPversion3"
+# Seconds to wait for the version reply; without one the file is downloaded.
+STRUCTURE_VERSION_TIMEOUT: Final = 10
 
 CMD_KEEP_ALIVE: Final = "keepalive"
 CMD_GET_API_KEY: Final = "/jdev/cfg/apiKey"
