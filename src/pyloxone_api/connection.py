@@ -48,12 +48,14 @@ from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_CHECK_TOKEN, CMD_ENAB
                     SECURED_COMMAND_TIMEOUT, STRUCTURE_FILE_TIMEOUT, TIMEOUT,
                     TOKEN_PERMISSION, TOKEN_REFRESH_MAX_FAILURES,
                     WEBSOCKET_CLOSE_TIMEOUT, WEBSOCKET_READ_TIMEOUT)
-from .token_store import TokenStore, make_binding, token_from_store
+from .token_store import (TokenStore, make_binding, normalise_pin, pin_from_store,
+                          token_from_store)
 from .exceptions import (LoxoneAuthEscalatedError,
                          LoxoneNoEventSlotsError, LoxoneRemoteAccessDeniedError,
                          LoxoneConnectionClosedOk, LoxoneConnectionError,
                          LoxoneException, LoxoneMaxNumOfConnectionsError,
                          LoxoneOutOfServiceException,
+                         LoxonePublicKeyMismatchError,
                          LoxoneServiceUnAvailableError, LoxoneTokenError,
                          LoxoneUnauthorisedError)
 from .loxone_http_client import LoxoneAsyncHttpClient
@@ -362,6 +364,7 @@ class LoxoneBaseConnection:
         token_change_callback: Optional[Callable[..., Any]] = None,
         token_store: Optional[TokenStore] = None,
         forward_daytimer_weather: bool = False,
+        public_key_pin: Optional[str] = None,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -382,6 +385,10 @@ class LoxoneBaseConnection:
             raise ValueError("verify_ssl must be a boolean")
         if not isinstance(forward_daytimer_weather, bool):
             raise ValueError("forward_daytimer_weather must be a boolean")
+        if public_key_pin is not None and normalise_pin(public_key_pin) is None:
+            raise ValueError(
+                "public_key_pin must be 'sha256:' followed by 64 hex digits"
+            )
 
         self.host = host
         self.username = username
@@ -575,6 +582,15 @@ class LoxoneBaseConnection:
         if token is None and token_store is not None:
             self._token = self._load_from_token_store()
 
+        # Pinned Miniserver public key (trust on first use). The spec asks
+        # to verify the certificate against the Loxone root certificate,
+        # which Loxone does not publish; pinning the first key seen at
+        # least detects a different key later.
+        self.public_key_pin: Optional[str] = (
+            normalise_pin(public_key_pin) if public_key_pin is not None
+            else self._stored_pin(token)
+        )
+
         self._key: str = ""
         self._user_salt: str = ""
         self._hash_alg: str = ""
@@ -682,6 +698,7 @@ class LoxoneBaseConnection:
                 "valid_until": self._token.valid_until,
                 "hash_alg": self._token.hash_alg,
                 "unsecure_password": self._token.unsecure_password,
+                "public_key_pin": self.public_key_pin,
             }
         except AttributeError as e:
             _LOGGER.error(f"Token attributes missing: {e}")
@@ -951,6 +968,37 @@ class LoxoneBaseConnection:
             finally:
                 if self._key_update_event is key_updated_event:
                     self._key_update_event = None
+
+    def _stored_pin(self, token: Optional[dict]) -> Optional[str]:
+        """The pin from ``token=`` or the token store, if any."""
+        if token is not None:
+            return normalise_pin(token.get("public_key_pin")) if isinstance(token, dict) else None
+        if self._token_store is None:
+            return None
+        try:
+            return pin_from_store(self._token_store.load(), self._token_binding)
+        except Exception as e:
+            _LOGGER.warning("token_store.load failed while reading public_key_pin: %s", e)
+            return None
+
+    def _check_public_key_pin(self, rsa_key) -> None:
+        """Compare the key with the pin; learn the pin on first use."""
+        pin = "sha256:" + hashlib.sha256(rsa_key.export_key("DER")).hexdigest()
+        if self.public_key_pin is None:
+            self.public_key_pin = pin
+            _LOGGER.info("Pinned the Miniserver public key (%s)", pin)
+            # With a stored token the login uses authwithtoken and saves
+            # no new token, so save the pin now. Without one, it is saved
+            # with the token of this session's getjwt.
+            if self._token.token:
+                self._save_token_to_store(self.get_token_dict())
+            return
+        if pin != self.public_key_pin:
+            raise LoxonePublicKeyMismatchError(
+                "The Miniserver presented a different public key than the pinned "
+                f"one (got {pin}, pinned {self.public_key_pin}). If the Miniserver "
+                "was replaced or reset, connect with the new public_key_pin."
+            )
 
     def _load_from_token_store(self) -> LoxoneToken:
         """Read the stored token; any problem means "no token"."""
@@ -2705,6 +2753,8 @@ class LoxoneConnection(LoxoneBaseConnection):
         except Exception as exc:
             _LOGGER.error(f"Error creating RSA cipher: {exc}")
             raise LoxoneException(f"RSA cipher initialization failed: {exc}") from exc
+
+        self._check_public_key_pin(rsa_key)
 
         # Generate session key
         try:

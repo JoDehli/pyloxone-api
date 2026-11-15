@@ -39,6 +39,16 @@ class LoxoneRemoteAccessDeniedError(LoxoneException):
     """
 
 
+class LoxonePublicKeyMismatchError(LoxoneException):
+    """The Miniserver presented another public key than the pinned one.
+
+    Final: ``run()`` does not retry it. Either the Miniserver was replaced
+    or reset, or someone in the network answers in its place. After
+    checking, connect with the new pin (``public_key_pin=``) or without the
+    stored one.
+    """
+
+
 class LoxoneHTTPStatusError(LoxoneException):
     """An exception indicating an unusual http response from the miniserver"""
 

@@ -83,6 +83,10 @@ existing findings (mostly E501). New files should be clean.
   listening session skips the download (`_structure_fresh`). A rejected
   stored token in that session is dropped and the bootstrap logs in once
   more with the password.
+- The Miniserver public key is pinned on first use (`public_key_pin`, saved
+  with the token). Loxone does not publish its root certificate, so the
+  chain check the spec describes is not possible; a different key later
+  raises `LoxonePublicKeyMismatchError`, which is final.
 - The source distribution excludes internal notes (`[tool.hatch.build.targets.sdist]`).
   Internal notes do not belong in the repository.
 
