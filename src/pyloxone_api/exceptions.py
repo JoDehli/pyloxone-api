@@ -39,6 +39,32 @@ class LoxoneRemoteAccessDeniedError(LoxoneException):
     """
 
 
+class LoxoneRemoteConnectError(LoxoneConnectionError):
+    """Remote Connect could not tell where the Miniserver is (yet).
+
+    Retryable: a relay hiccup, a Miniserver restart or a lost tunnel
+    resolve themselves. code is the status of the Remote Connect
+    service, if there was one.
+    """
+
+    def __init__(self, message: str = "", *, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class LoxoneRemoteConnectDeniedError(LoxoneException):
+    """Remote Connect refused to give out the Miniserver's address.
+
+    Final: run() does not retry it. Loxone answers 403 / 418 e.g. when
+    remote access is only permitted for the Loxone App and Loxone Config,
+    409 for an unsecure password, 400 for an invalid serial number.
+    """
+
+    def __init__(self, message: str = "", *, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class LoxoneHTTPStatusError(LoxoneException):
     """An exception indicating an unusual http response from the miniserver"""
 
