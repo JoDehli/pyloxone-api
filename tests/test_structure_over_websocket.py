@@ -9,9 +9,9 @@ import json
 import logging
 
 import pytest
+from _fake_miniserver import STRUCTURE, FakeMiniserver
 from Crypto.PublicKey import RSA
 
-from _fake_miniserver import STRUCTURE, FakeMiniserver
 from pyloxone_api import connection as conn_mod
 from pyloxone_api.connection import LoxoneConnection
 from pyloxone_api.exceptions import LoxoneConnectionError
