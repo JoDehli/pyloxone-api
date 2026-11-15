@@ -47,12 +47,15 @@ SALT_MAX_USE_COUNT: Final = 100
 SECURED_COMMAND_TIMEOUT: Final = 30
 
 
-# TOKEN_PERMISSION can be 2 for a 'short' lifespan token (days), or 4 for
-# a longer lifespan (weeks). We ask for shorter token here. Renewing it
-# is relatively easy, and the lifespan ensures that the tokens don't
-# stick around for too long in the miniserver's memory if we have
-# frequent restarts.
-TOKEN_PERMISSION: Final = 2  # 2=web, 4=app
+# Token permission (spec, "List of permission bit-flags"): 2 = web, a short
+# lived token for the web interface; 4 = app, a long lived token (weeks).
+# A long-running client is an app, so 4 is the default. 2 remains available
+# through ``LoxoneConnection(token_permission=2)``.
+TOKEN_PERMISSION_WEB: Final = 2
+TOKEN_PERMISSION_APP: Final = 4
+TOKEN_PERMISSION: Final = TOKEN_PERMISSION_APP
+# Text shown for the token in the Miniserver's token list ({info} of getjwt).
+DEFAULT_CLIENT_INFO: Final = "pyloxone_api"
 
 TOKEN_REFRESH_RETRY_COUNT: Final = 5
 TOKEN_REFRESH_MAX_FAILURES: Final = 10  # consecutive failures before raising

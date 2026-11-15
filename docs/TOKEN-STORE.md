@@ -39,12 +39,19 @@ writes slow media should hand the write to a thread itself (for example
   "valid_until": 412345678.0,
   "hash_alg": "SHA256",
   "unsecure_password": false,
+  "client_uuid": "098802e1-02b4-603c-ffffeee000d80cfd",
   "binding": {"url": "192.0.2.1:8080", "port": 8080, "user": "example-user"}
 }
 ```
 
 Treat `token` as a secret: it logs in as the user. Store it with file
 permissions 0600 or in a secret store, and never put it in logs.
+
+`client_uuid` identifies this client in the Miniserver's token list. The
+library generates it on the first start and reads it back from the store,
+also when the stored token itself is no longer usable. An application can
+fix it instead with `LoxoneConnection(..., client_uuid="...")` (form
+8-4-4-16 hex digits), for example derived from its own installation id.
 
 `binding` ties the token to the connection it was issued for. `load()`
 returns the dict as it was saved. The library checks the binding itself.
@@ -103,6 +110,14 @@ conn = LoxoneConnection(
     token_store=JsonFileTokenStore(Path("loxone_token.json")),
 )
 ```
+
+## Token request options
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `client_uuid` | generated, then stored | client id sent with `getjwt` |
+| `client_info` | `"pyloxone_api"` | text shown for the token on the Miniserver |
+| `token_permission` | `4` (app) | `4` = long lived app token (weeks), `2` = short lived web token |
 
 ## Migrating from `token=` and `token_change_callback`
 
