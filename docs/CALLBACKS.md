@@ -86,6 +86,23 @@ await conn.run(callback=on_message)
 Messages of other types are not forwarded. The library handles them
 internally.
 
+### Daytimer and weather tables
+
+With `LoxoneConnection(..., forward_daytimer_weather=True)` the callback
+also receives these two tables. The default is `False`, because their
+values are dicts, not scalars, and a callback written for value states
+would not expect them.
+
+- `DAYTIMER_STATES`: `{uuid: {"default_value": float, "entries": [...]}}`.
+  Each entry has `mode`, `from` and `to` (minutes since midnight),
+  `need_activate` (bool) and `value`. For a digital daytimer an entry
+  means "on" and a missing entry means "off".
+- `WEATHER_STATES`: `{uuid: {"last_update": int, "entries": [...]}}`.
+  `last_update` is in seconds since 1.1.2009 (UTC). Each entry has
+  `timestamp`, `weather_type`, `wind_direction`, `solar_radiation`,
+  `relative_humidity`, `temperature`, `perceived_temperature`,
+  `dew_point`, `precipitation`, `wind_speed` and `barometric_pressure`.
+
 ### Known inconsistency
 
 `start_listening(callback)` is annotated as `Callable[[str, Any], ...]`,
