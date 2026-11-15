@@ -17,13 +17,13 @@ they run through it. Failures are logged, never raised.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 
 class StructureCache(Protocol):
     """Application-side persistence for the structure file."""
 
-    def load(self) -> Optional[dict[str, Any]]:
+    def load(self) -> dict[str, Any] | None:
         """Return the structure file saved last, or ``None``."""
         ...
 
@@ -36,7 +36,7 @@ def _normalise_serial(value: Any) -> str:
     return str(value or "").replace(":", "").upper()
 
 
-def cached_structure_for(data: Any, serial: str) -> Optional[dict[str, Any]]:
+def cached_structure_for(data: Any, serial: str) -> dict[str, Any] | None:
     """``data`` if it is a usable structure file of the Miniserver ``serial``.
 
     A file without ``lastModified`` cannot be compared and is not used. When

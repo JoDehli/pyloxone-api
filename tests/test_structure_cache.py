@@ -7,11 +7,11 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from _fake_miniserver import STRUCTURE, FakeMiniserver
+from test_structure_over_websocket import _HttpSession, _wait_for
+
 from pyloxone_api import connection as conn_mod
 from pyloxone_api.connection import LoxoneConnection
-from test_structure_over_websocket import _HttpSession, _wait_for
 
 SERIAL_STRUCTURE = {**STRUCTURE, "msInfo": {"serialNr": "504F94AABBCC"}}
 
