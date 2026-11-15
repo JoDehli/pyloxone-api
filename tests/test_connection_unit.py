@@ -334,6 +334,17 @@ class _FakeResponse:
         return self._body
 
 
+def _stub_structure_session(monkeypatch) -> None:
+    """Skip the websocket session in which ``open()`` loads the structure
+    file (covered in test_structure_over_websocket.py), as if it had just
+    loaded the file."""
+
+    async def loaded(self):
+        self._structure_fresh = True
+
+    monkeypatch.setattr(LoxoneConnection, "_load_structure_via_session", loaded)
+
+
 class TestOpenStoresWebsocket:
     """``open()`` stores the websocket on ``self.connection``; a
     follow-up ``start_listening()`` does not call ``open()`` again
@@ -365,6 +376,7 @@ class TestOpenStoresWebsocket:
 
         monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
 
+        _stub_structure_session(monkeypatch)
         conn = LoxoneConnection(
             host="192.0.2.1",
             username="user",
@@ -490,12 +502,15 @@ class TestDeferredWebsocket:
     async def test_open_without_websocket_skips_connect(
         self, monkeypatch, fake_http_session
     ):
+        """No listening websocket after ``open(connect_websocket=False)``.
+        (The short structure-file session is stubbed here.)"""
         from pyloxone_api import connection as conn_mod
 
         async def fail_connect(*args, **kwargs):
             raise AssertionError("wslib.connect must not be called")
 
         monkeypatch.setattr(conn_mod.wslib, "connect", fail_connect)
+        _stub_structure_session(monkeypatch)
 
         conn = self._make_conn()
         result = await conn.open(
@@ -504,7 +519,6 @@ class TestDeferredWebsocket:
 
         assert result is None
         assert conn.connection is None
-        assert conn.structure_file
         assert conn._session_key
         assert conn._websocket_deferred is True
 
@@ -536,6 +550,7 @@ class TestDeferredWebsocket:
             return fake_ws
 
         monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
+        _stub_structure_session(monkeypatch)
 
         conn = self._make_conn()
         await conn.open(session=fake_http_session, connect_websocket=False)
@@ -569,6 +584,7 @@ class TestDeferredWebsocket:
         """After a close, a reconnect must run the full ``open()``
         bootstrap again, not just the deferred websocket connect.
         """
+        _stub_structure_session(monkeypatch)
         conn = self._make_conn()
         await conn.open(session=fake_http_session, connect_websocket=False)
 
@@ -598,111 +614,9 @@ class TestExecutorParam:
         public_pem = rsa_key.publickey().export_key().decode()
         return _FakeHttpSession(public_pem)
 
-    @pytest.mark.asyncio
-    async def test_open_uses_executor_for_structure_file_parse(
-        self, monkeypatch, fake_http_session
-    ):
-        """When an executor is supplied, ``json.loads(structure_file)``
-        is invoked via the executor (off the event loop), not directly
-        on the data bytes.
-        """
-        from pyloxone_api import connection as conn_mod
-
-        async def fake_connect(*args, **kwargs):
-            return _FakeWebsocket()
-
-        monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
-
-        # The executor records every (target, args) pair it's asked to
-        # run. We assert ``json.loads`` is invoked via it.
-        calls: list[tuple] = []
-
-        async def fake_executor(target, *args):
-            calls.append((target, args))
-            return target(*args)
-
-        conn = LoxoneConnection(
-            host="192.0.2.1",
-            username="user",
-            password="password",
-            port=8080,
-            executor=fake_executor,
-        )
-
-        await conn.open(session=fake_http_session)
-
-        # At least one call must have been ``json.loads`` on the
-        # structure-file payload.
-        json_loads_calls = [
-            (t, a) for (t, a) in calls if t is json.loads
-        ]
-        assert len(json_loads_calls) == 1
-        # The first positional arg of json.loads was the LoxAPP3 body.
-        target, args = json_loads_calls[0]
-        assert isinstance(args[0], (bytes, bytearray))
-        # Decoding the parsed payload back to JSON should round-trip
-        # to the empty-dict structure file the fake HTTP layer returned.
-        assert json.loads(args[0]) == {}
-
-    @pytest.mark.asyncio
-    async def test_open_runs_json_loads_inline_when_no_executor(
-        self, monkeypatch, fake_http_session
-    ):
-        """When ``executor`` is ``None`` (the default), ``open()``
-        still parses the structure file successfully — inline.
-        """
-        from pyloxone_api import connection as conn_mod
-
-        async def fake_connect(*args, **kwargs):
-            return _FakeWebsocket()
-
-        monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
-
-        conn = LoxoneConnection(
-            host="192.0.2.1",
-            username="user",
-            password="password",
-            port=8080,
-            # No executor — parse runs inline.
-        )
-        assert conn.executor is None
-
-        await conn.open(session=fake_http_session)
-
-        # The structure file was populated (it was the empty
-        # ``{}`` the fake HTTP layer returns).
-        assert conn.structure_file is not None
-        # ``softwareVersion`` is back-filled with ``miniserver_version``
-        # which the API-key response set to ``[13, 2, 0]``.
-        assert conn.structure_file.get("softwareVersion") == [13, 2, 0]
-
-    @pytest.mark.asyncio
-    async def test_executor_exceptions_propagate(
-        self, monkeypatch, fake_http_session
-    ):
-        """An exception raised by the executor (or its target)
-        propagates out of ``open()`` rather than being swallowed.
-        """
-        from pyloxone_api import connection as conn_mod
-
-        async def fake_connect(*args, **kwargs):
-            return _FakeWebsocket()
-
-        monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
-
-        async def failing_executor(target, *args):
-            raise RuntimeError("executor boom")
-
-        conn = LoxoneConnection(
-            host="192.0.2.1",
-            username="user",
-            password="password",
-            port=8080,
-            executor=failing_executor,
-        )
-
-        with pytest.raises(RuntimeError, match="executor boom"):
-            await conn.open(session=fake_http_session)
+    # The structure-file parse (inline, via the executor, executor
+    # errors) is covered in test_structure_over_websocket.py: the file
+    # now comes over the websocket.
 
     def test_default_executor_is_none(self):
         """The default value of ``executor`` is ``None`` — preserves
@@ -1678,6 +1592,9 @@ class TestAuthenticatedEvent:
             '{"LL":{"control":"jdev/sys/authwithtoken",'
             '"value":"OK","code":"200"}}'
         )
+        # The structure file is loaded after the login and before the
+        # session counts as authenticated; here open() has just loaded it.
+        conn._structure_fresh = True
 
         await conn._websocket_event(response)
 
@@ -2623,6 +2540,7 @@ class TestReceiveWatchdog:
         )
         # Pretend a previous attempt went stale a long time ago.
         conn._last_frame_time = time.monotonic() - 10_000
+        _stub_structure_session(monkeypatch)
 
         await conn.open(session=session)
 
@@ -2672,6 +2590,7 @@ class TestReceiveWatchdog:
         )
         states = []
         conn._on_state = states.append
+        _stub_structure_session(monkeypatch)
 
         await conn.open(session=session)
         assert states == []
@@ -3233,6 +3152,7 @@ class TestReconnectResetsAuthentication:
 
         monkeypatch.setattr(conn_mod.wslib, "connect", fake_connect)
 
+        _stub_structure_session(monkeypatch)
         conn = LoxoneConnection(
             host="192.0.2.1", username="user", password="password", port=8080
         )
