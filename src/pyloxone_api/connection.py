@@ -2111,10 +2111,19 @@ class LoxoneConnection(LoxoneBaseConnection):
                 # heartbeat; awaiting it would serialise it
                 # behind any in-flight user callback and
                 # noticeably slow the keepalive loop.
-                self._spawn_task(
-                    _run_callback(Keepalive("")),
-                    name="loxone.keepalive",
-                )
+                #
+                # Guard on ``callback`` exactly like ``_dispatch_body``:
+                # the external callback is optional, and the internal
+                # bootstrap listener in ``open()`` runs with
+                # ``callback=None``. Without the guard the first
+                # keepalive would call ``None(...)`` and raise
+                # ``TypeError`` (caught by ``_run_callback`` and logged
+                # as a spurious "Callback error").
+                if callback:
+                    self._spawn_task(
+                        _run_callback(Keepalive("")),
+                        name="loxone.keepalive",
+                    )
                 # Keepalives are infrequent (roughly every 30 s),
                 # so yield immediately to deliver the liveness
                 # callback without affecting the high-rate state
