@@ -2997,8 +2997,10 @@ class TestSaltRotationLock:
         assert not conn._salt_lock.locked(), "lock must be released again"
 
     @pytest.mark.asyncio
-    async def test_lock_released_before_aes_and_send(self, conn, monkeypatch):
-        """The critical section must stop before AES and websocket I/O."""
+    async def test_lock_held_through_aes_and_send(self, conn, monkeypatch):
+        """The salt changes after every command, so the AES work and the
+        send run under the lock: the wire order must follow the salt chain
+        (see test_salt_per_command.py)."""
         observed: dict[str, bool] = {}
 
         conn.connection = self._RecordingWebsocket(
@@ -3033,8 +3035,8 @@ class TestSaltRotationLock:
         await conn._send_text_command("jdev/sys/hello", encrypted=True)
 
         assert observed["decision_locked"] is True
-        assert observed["aes_locked"] is False, "AES must run outside the lock"
-        assert observed["send_locked"] is False, "send must run outside the lock"
+        assert observed["aes_locked"] is True, "AES must run under the lock"
+        assert observed["send_locked"] is True, "send must run under the lock"
 
     @pytest.mark.asyncio
     async def test_plain_commands_bypass_the_salt_state(self, conn):

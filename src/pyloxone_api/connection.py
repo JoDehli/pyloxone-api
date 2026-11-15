@@ -715,30 +715,24 @@ class LoxoneBaseConnection:
         Salt rotation
         -------------
 
-        ``self._salt`` (a 16-byte hex string) is the **server-side
-        pre-shared salt** sent to the Miniserver with every
-        encrypted command so the Miniserver can derive the same
-        session key. ``_new_salt_needed()`` decides when to
-        rotate:
+        ``self._salt`` (a 16-byte hex string) is sent with every
+        encrypted command. The spec advises a new salt after every
+        sent command (replay protection), so ``_new_salt_needed()``
+        returns ``True`` once the current salt was used
+        (``SALT_MAX_USE_COUNT`` = 1; ``SALT_MAX_AGE_SECONDS`` stays as
+        an upper bound). The first command after ``open()`` uses
+        ``salt/{salt}/{command}``, every later one
+        ``nextSalt/{old}/{new}/{command}``. The trailing NUL byte
+        (``\\x00``) after ``{command}`` is undocumented but required
+        by the Miniserver's command parser.
 
-          - ``SALT_MAX_USE_COUNT`` — rotate after this many uses
-            of the current salt.
-          - ``SALT_MAX_AGE_SECONDS`` — rotate after this many
-            seconds since ``_generate_salt`` last ran.
-
-        When a rotation is due, the new salt is sent to the
-        Miniserver via a ``nextSalt/{old}/{new}/{command}``
-        command (the old salt is included so the Miniserver can
-        validate the rotation). The trailing NUL byte
-        (``\\x00``) after ``{command}`` is undocumented but
-        required by the Miniserver's command parser.
-
-        The decision and the generation run under
-        ``self._salt_lock`` (see ``__init__``) because the send
-        path is concurrent: the queue consumer spawns one task per
-        message and ``open()`` / token refresh call this method
-        directly. The lock is released before the AES work and the
-        websocket send, so it never covers I/O.
+        The decision, the AES work and the send run under
+        ``self._salt_lock`` (see ``__init__``): the send path is
+        concurrent (the queue consumer spawns one task per message,
+        ``open()`` / token refresh call this method directly), and
+        the Miniserver accepts a rotation only when ``old`` is its
+        current salt, so the wire order must follow the rotation
+        order. The new salt is kept only after a successful send.
 
         Hash algorithm fallback
         -----------------------
@@ -788,29 +782,41 @@ class LoxoneBaseConnection:
         # decision and the AES work happen in between.
         connection = self.connection
         if encrypted:
-            # Salt state (``_salt`` / ``_salt_used_count``) is shared
-            # across every concurrent send task, so decide + generate
-            # atomically. Without the lock a second sender could decide
-            # while a rotation is in flight and build its command with
-            # a salt the Miniserver has not (or already) switched to.
-            # Only the decision lives inside the lock: the AES work and
-            # the websocket send below stay outside, so the critical
-            # section never waits on I/O and the send pipeline keeps
-            # its fire-and-forget throughput.
+            # The salt changes after every command (spec), and the
+            # Miniserver accepts ``nextSalt/{prev}/{next}`` only when
+            # ``prev`` is its current salt. Senders run as concurrent
+            # tasks, so the decision, the AES work and the send all run
+            # under the lock: otherwise two rotations could reach the
+            # wire in the wrong order and break the chain. The new salt
+            # is kept only after the send succeeded, so a command that
+            # never left does not move our salt past the Miniserver's.
             async with self._salt_lock:
                 if self._new_salt_needed():
-                    old_salt = self._salt
-                    self._generate_salt()
+                    new_salt = get_random_bytes(SALT_BYTES).hex()
                     # The miniserver needs the text terminated with a zero byte,
                     # though this is not documented
-                    command_string = f"nextSalt/{old_salt}/{self._salt}/{command}\x00"
+                    command_string = f"nextSalt/{self._salt}/{new_salt}/{command}\x00"
                 else:
+                    new_salt = None
                     command_string = f"salt/{self._salt}/{command}\x00"
-            padded_bytes = Padding.pad(bytes(command_string, "utf-8"), 16)
-            aes_cipher = AES.new(self._aes_key, AES.MODE_CBC, self._iv)
-            cipher = b64encode(aes_cipher.encrypt(padded_bytes))
-            enc_cipher = urllib.parse.quote(cipher.decode())
-            command = f"jdev/sys/enc/{enc_cipher}"
+                await self._send_on(connection, self._encrypt_command(command_string))
+                if new_salt is not None:
+                    self._set_salt(new_salt)
+                    # Announced with this command, so already used once:
+                    # the next command rotates again.
+                    self._salt_used_count = 1
+            return
+        await self._send_on(connection, command)
+
+    def _encrypt_command(self, command_string: str) -> str:
+        """``jdev/sys/enc/{cipher}`` for ``command_string`` (AES-CBC, session key)."""
+        padded_bytes = Padding.pad(bytes(command_string, "utf-8"), 16)
+        aes_cipher = AES.new(self._aes_key, AES.MODE_CBC, self._iv)
+        cipher = b64encode(aes_cipher.encrypt(padded_bytes))
+        return f"jdev/sys/enc/{urllib.parse.quote(cipher.decode())}"
+
+    @staticmethod
+    async def _send_on(connection, command: str) -> None:
         try:
             # Send a plain str (not a list): websockets fragments the
             # payload when given a list, which the Loxone protocol does
@@ -840,12 +846,15 @@ class LoxoneBaseConnection:
         # The miniserver seems to terminate the text with a zero byte
         return _strip_padding(decrypted).rstrip(b"\x00")
 
+    def _set_salt(self, salt: str) -> None:
+        self._salt = salt
+        self._salt_time_stamp = time_elapsed_in_seconds()
+        self._salt_used_count = 0
+
     def _generate_salt(self) -> None:
         try:
             _LOGGER.debug("Generating a new salt")
-            self._salt = get_random_bytes(SALT_BYTES).hex()
-            self._salt_time_stamp = time_elapsed_in_seconds()
-            self._salt_used_count = 0
+            self._set_salt(get_random_bytes(SALT_BYTES).hex())
         except Exception as e:
             _LOGGER.error(f"Failed to generate salt: {e}")
             raise RuntimeError(f"Salt generation failed: {e}") from e

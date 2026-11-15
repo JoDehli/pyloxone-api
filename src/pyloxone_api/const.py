@@ -40,7 +40,9 @@ AES_KEY_SIZE: Final = 32
 
 SALT_BYTES: Final = 16
 SALT_MAX_AGE_SECONDS: Final = 60 * 60
-SALT_MAX_USE_COUNT: Final = 100
+# The spec advises a new salt after every sent command (replay protection):
+# a salt is used once, the next command carries ``nextSalt``.
+SALT_MAX_USE_COUNT: Final = 1
 # Seconds a secure command may wait for its getvisusalt reply. Older
 # commands are dropped instead of being sent late (e.g. a gate opening
 # minutes after the user gave up).
