@@ -68,6 +68,11 @@ existing findings (mostly E501). New files should be clean.
 
 ## Decisions
 
+- 901 (maximum number of concurrent connections) is retried with the normal backoff.
+- 4004 and 4005 (a user was changed) are retried. The reconnect logs in again;
+  a changed password then fails with 401 there, which is final.
+- LL code 423 (user disabled) is final, like close code 4006. 4003 is only a
+  close code, not an LL code.
 - 4007 (update) and 4008 (no event slots) use the normal backoff (at most 60 s).
   A fixed 300 s wait was dropped, because it delayed reconnects after an update.
 - HTTP basic auth is sent as an `Authorization` header, not through the
@@ -81,7 +86,6 @@ existing findings (mostly E501). New files should be clean.
 
 ## Open items
 
-- The behavior for 901 (maximum number of concurrent connections) is not decided.
 - Keepalive: the rule "90 s without data means dead" has not been checked yet.
 - `hasEventSlots` via `jdev/cfg/api` before connecting is implemented, but not
   yet used as the behavior for 4008.

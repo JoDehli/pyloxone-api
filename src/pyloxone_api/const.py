@@ -88,12 +88,12 @@ CMD_ENCRYPT_CMD: Final = "jdev/sys/enc/"
 CMD_ENABLE_UPDATES: Final = "jdev/sps/enablebinstatusupdate"
 CMD_GET_VISUAL_PASSWD: Final = "jdev/sys/getvisusalt/"
 
-# LL envelope codes that mean "credentials rejected". The
-# Miniserver returns 401 for the standard username/password
-# auth path and 4003 (legacy) for older Miniservers / firmware
-# variants. Any other non-200 code is logged at WARNING and the
-# auth flow continues — those are usually transient.
-LLRSP_UNAUTHORISED_CODES: Final = frozenset({401, 4003})
+# LL envelope codes that mean "credentials rejected" (spec, Error-Codes):
+# 401 = invalid user name or password, 423 = the user is disabled. Any
+# other non-200 code is logged at WARNING and the auth flow continues.
+# 4003 (blocked user) is a websocket close code, not an LL code; it is
+# handled by ``FATAL_CLOSE_CODES`` in ``connection.py``.
+LLRSP_UNAUTHORISED_CODES: Final = frozenset({401, 423})
 
 DEFAULT_TOKEN_PERSIST_NAME: Final = "lox_token.cfg"
 LOX_CONFIG: Final = "loxconfig"

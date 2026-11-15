@@ -27,8 +27,7 @@ class LoxoneConnectionError(Exception):
 class LoxoneNoEventSlotsError(LoxoneConnectionError):
     """The Miniserver reports ``hasEventSlots: false`` (no free event slot).
 
-    Retryable, but with the long wait used for close codes 4007 and 4008:
-    reconnecting at once cannot succeed until a slot is free.
+    Retryable with the normal backoff of ``run()``, like close code 4008.
     """
 
 
