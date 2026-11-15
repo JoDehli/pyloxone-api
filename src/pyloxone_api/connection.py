@@ -9,6 +9,7 @@ import asyncio
 import datetime
 import hashlib
 import inspect
+import ipaddress
 import json
 import logging
 import ssl
@@ -461,6 +462,8 @@ class LoxoneBaseConnection:
             parsed = urlparse(host if "://" in host else f"//{host}", scheme="")
             self.scheme = parsed.scheme or ("https" if port == 443 else "http")
             netloc = parsed.hostname or parsed.path
+            # Bare host name or IP (no port, no brackets), for tls_hostname.
+            self._hostname: str = netloc
 
             if not netloc:
                 raise ValueError(f"Cannot parse hostname from '{host}'")
@@ -490,6 +493,10 @@ class LoxoneBaseConnection:
 
         self.miniserver_version: list[int] = []
         self.miniserver_serial: str = ""
+        # ``httpsStatus`` from apiKey (spec "Using HTTPS/WSS"): 1 = TLS
+        # available, 2 = certificate expired, 0 = none, None = unknown.
+        self.https_status: int | None = None
+        self._https_hint_logged: bool = False
         self.structure_file: dict = {}
         # Set by ``open(connect_websocket=False)``: the HTTP bootstrap
         # (apiKey / LoxAPP3 / publicKey / session key) is done, but the
@@ -588,6 +595,7 @@ class LoxoneBaseConnection:
         """
         self.scheme = scheme
         self.url = url
+        self._hostname = urlparse(f"//{url}").hostname or self._hostname
         _LOGGER.debug("URL updated to %s://%s", scheme, url)
 
     def _websocket_ssl_context(self) -> ssl.SSLContext | None:
@@ -2337,6 +2345,52 @@ class LoxoneConnection(LoxoneBaseConnection):
         assert last_exc is not None
         raise last_exc
 
+    def _apply_api_key_info(self, value: dict) -> None:
+        """Take serial number and ``httpsStatus`` from the apiKey reply."""
+        self.miniserver_serial = value.get("snr", "") or ""
+        raw = value.get("httpsStatus")
+        try:
+            self.https_status = None if raw is None else int(raw)
+        except (TypeError, ValueError):
+            self.https_status = None
+
+        if self.https_status == 2:
+            _LOGGER.warning(
+                "The Miniserver's TLS certificate has expired (httpsStatus 2)"
+            )
+        elif (
+            self.https_status == 1
+            and self.scheme == "http"
+            and not self._https_hint_logged
+        ):
+            self._https_hint_logged = True
+            target = self.tls_hostname
+            _LOGGER.info(
+                "The Miniserver supports HTTPS/WSS, but the connection uses "
+                "plain HTTP/WS%s",
+                f"; for TLS connect to https://{target}" if target else "",
+            )
+
+    @property
+    def tls_hostname(self) -> str | None:
+        """CloudDNS host name for a TLS connection to this Miniserver.
+
+        Built as in the spec ("How can I connect locally with TLS?"):
+        ``{ip with dashes}.{serial}.dyndns.loxonecloud.com``. Only for an IP
+        literal host, a known serial and ``https_status == 1``. The
+        certificate matches only when the Miniserver uses the CloudDNS
+        certificate; locally the HTTPS port is usually 443.
+        """
+        if self.https_status != 1 or not self.miniserver_serial:
+            return None
+        try:
+            ip = ipaddress.ip_address(self._hostname)
+        except ValueError:
+            return None
+        cleaned = str(ip).replace(".", "-").replace(":", "-")
+        snr = self.miniserver_serial.replace(":", "").upper()
+        return f"{cleaned}.{snr}.dyndns.loxonecloud.com"
+
     def _check_local_only(self, local: bool) -> None:
         """Refuse a remote Miniserver when ``local_only`` is set (final)."""
         if not local and self.local_only:
@@ -2437,7 +2491,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                 _LOGGER.warning("No version in API response")
                 self.miniserver_version = []
 
-            self.miniserver_serial = value.get("snr", "")
+            self._apply_api_key_info(value)
             local = value.get("local", True)
 
             self._check_local_only(local)
