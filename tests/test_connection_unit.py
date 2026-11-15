@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import struct
 import urllib.parse
 from collections import deque
@@ -32,6 +33,7 @@ from pyloxone_api.connection import (
     is_auth_response,
     parse_loxone_url,
 )
+from pyloxone_api.exceptions import LoxoneConnectionClosedOk
 from pyloxone_api.message import (
     MessageType,
     TextMessage,
@@ -214,6 +216,18 @@ class _FakeWebsocket:
 
     async def __anext__(self):
         raise StopAsyncIteration
+
+
+class _FramesWebsocket(_FakeWebsocket):
+    """A peer that delivers a fixed list of frames, then closes cleanly."""
+
+    def __init__(self, frames):
+        self._frames = list(frames)
+
+    async def __anext__(self):
+        if not self._frames:
+            raise StopAsyncIteration
+        return self._frames.pop(0)
 
 
 def _ll_response(value: str) -> bytes:
@@ -3587,20 +3601,7 @@ class TestAuthReplyFilter:
         return [header, body]
 
     async def test_callback_never_sees_auth_replies(self):
-        from pyloxone_api.exceptions import (
-            LoxoneConnectionClosedOk,
-        )
-
         received = []
-
-        class _FramesWebsocket(_FakeWebsocket):
-            def __init__(self, frames):
-                self._frames = list(frames)
-
-            async def __anext__(self):
-                if not self._frames:
-                    raise StopAsyncIteration
-                return self._frames.pop(0)
 
         conn = LoxoneConnection(
             host="192.0.2.1", username="user", password="pw", port=8080
@@ -3619,5 +3620,128 @@ class TestAuthReplyFilter:
 
         # The getjwt reply must not be forwarded; the plain io reply must.
         assert received == [
+            {"control": "jdev/sps/io/<uuid>", "value": "1", "Code": 200}
+        ]
+
+
+# Loxone binary header for a bodyless KEEPALIVE: cBinType=0x03,
+# cIdentifier=6 (KEEPALIVE), cInfo/cReserved=0, payload length 0.
+_KEEPALIVE_HEADER = struct.pack(
+    "<cBccI", b"\x03", int(MessageType.KEEPALIVE), b"\x00", b"\x00", 0
+)
+
+
+class _FalsyCallback:
+    """A valid callback that is falsy, like a collector with ``__len__``."""
+
+    def __init__(self):
+        self.received = []
+
+    def __len__(self):
+        return 0
+
+    def __call__(self, message):
+        self.received.append(message)
+
+
+class TestOptionalMessageCallback:
+    """The message callback of ``run()`` / ``start_listening()`` is optional.
+
+    Without a callback the recv loop must not try to call ``None``. With a
+    callback, "no callback" means ``None`` and nothing else: a callable
+    that happens to be falsy still receives every message.
+    """
+
+    @staticmethod
+    async def _listen(callback, frames) -> LoxoneConnection:
+        """Feed ``frames`` to the recv loop and let the dispatch tasks finish."""
+        conn = LoxoneConnection(
+            host="192.0.2.1", username="user", password="pw", port=8080
+        )
+        ws = _FramesWebsocket(frames)
+        assert ws.state != ws.state.CLOSED  # the loop must process the frames
+        # A cleanly ending recv loop surfaces as this sentinel error.
+        with pytest.raises(LoxoneConnectionClosedOk):
+            await asyncio.wait_for(
+                conn._do_start_listening(callback, ws), timeout=5
+            )
+        pending = [task for task in conn._tasks if not task.done()]
+        if pending:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True), timeout=5
+            )
+        return conn
+
+    @staticmethod
+    def _state_frames() -> list[bytes]:
+        body = json.dumps(
+            {"LL": {"code": 200, "control": "jdev/sps/io/<uuid>", "value": "1"}}
+        ).encode()
+        header = struct.pack(
+            "<cBccI", b"\x03", int(MessageType.TEXT), b"\x00", b"\x00", len(body)
+        )
+        return [header, body]
+
+    async def test_keepalive_without_callback_logs_no_error(self, caplog):
+        with caplog.at_level(logging.ERROR, logger="pyloxone_api.connection"):
+            await self._listen(None, [_KEEPALIVE_HEADER])
+
+        assert "Callback error" not in caplog.text
+
+    async def test_without_callback_no_callback_task_is_spawned(self, caplog):
+        spawned = []
+
+        conn = LoxoneConnection(
+            host="192.0.2.1", username="user", password="pw", port=8080
+        )
+        spawn_task = conn._spawn_task
+
+        def recording_spawn(coro, *, name=None):
+            spawned.append(name)
+            return spawn_task(coro, name=name)
+
+        conn._spawn_task = recording_spawn
+        ws = _FramesWebsocket([_KEEPALIVE_HEADER, *self._state_frames()])
+        with caplog.at_level(logging.ERROR, logger="pyloxone_api.connection"):
+            with pytest.raises(LoxoneConnectionClosedOk):
+                await asyncio.wait_for(
+                    conn._do_start_listening(None, ws), timeout=5
+                )
+
+        assert "loxone.keepalive" not in spawned
+        assert not [name for name in spawned if name.startswith("loxone.callback")]
+        assert "Callback error" not in caplog.text
+
+    async def test_keepalive_reaches_a_sync_callback(self):
+        received = []
+
+        await self._listen(received.append, [_KEEPALIVE_HEADER])
+
+        assert received == [{"keep_alive": "received"}]
+
+    async def test_keepalive_reaches_an_async_callback(self):
+        received = []
+
+        async def callback(message):
+            await asyncio.sleep(0)
+            received.append(message)
+
+        await self._listen(callback, [_KEEPALIVE_HEADER])
+
+        assert received == [{"keep_alive": "received"}]
+
+    async def test_keepalive_reaches_a_falsy_callback(self):
+        callback = _FalsyCallback()
+
+        await self._listen(callback, [_KEEPALIVE_HEADER])
+
+        assert callback.received == [{"keep_alive": "received"}]
+
+    async def test_state_message_reaches_a_falsy_callback(self):
+        callback = _FalsyCallback()
+
+        await self._listen(callback, self._state_frames())
+
+        assert callback.received == [
             {"control": "jdev/sps/io/<uuid>", "value": "1", "Code": 200}
         ]
