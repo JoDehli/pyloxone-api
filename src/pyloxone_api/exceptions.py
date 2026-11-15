@@ -43,7 +43,7 @@ class LoxoneRemoteConnectError(LoxoneConnectionError):
     """Remote Connect could not tell where the Miniserver is (yet).
 
     Retryable: a relay hiccup, a Miniserver restart or a lost tunnel
-    resolve themselves. code is the status of the Remote Connect
+    resolve themselves. ``code`` is the status of the Remote Connect
     service, if there was one.
     """
 
@@ -55,7 +55,7 @@ class LoxoneRemoteConnectError(LoxoneConnectionError):
 class LoxoneRemoteConnectDeniedError(LoxoneException):
     """Remote Connect refused to give out the Miniserver's address.
 
-    Final: run() does not retry it. Loxone answers 403 / 418 e.g. when
+    Final: ``run()`` does not retry it. Loxone answers 403 / 418 e.g. when
     remote access is only permitted for the Loxone App and Loxone Config,
     409 for an unsecure password, 400 for an invalid serial number.
     """

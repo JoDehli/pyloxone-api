@@ -488,9 +488,9 @@ class LoxoneBaseConnection:
         else:
             self.url = f"{netloc}{parsed.path}"
 
-        # Remote Connect (spec V17.0): connect.loxonecloud.com/{serial}
-        # (or the deprecated dns.loxonecloud.com/{serial}). The relay
-        # address is resolved on every open(); the URL kept here is
+        # Remote Connect (spec V17.0): ``connect.loxonecloud.com/{serial}``
+        # (or the deprecated ``dns.loxonecloud.com/{serial}``). The relay
+        # address is resolved on every ``open()``; the URL kept here is
         # the stable identity (token binding). HTTPS/WSS only.
         self.remote_serial: Optional[str] = remote_connect_serial(host)
         if self.remote_serial is not None:
