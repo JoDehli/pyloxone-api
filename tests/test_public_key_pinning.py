@@ -11,13 +11,13 @@ import hashlib
 
 import pytest
 from Crypto.PublicKey import RSA
+from test_structure_over_websocket import _RSA, _HttpSession
 
 from pyloxone_api.connection import LoxoneConnection
 from pyloxone_api.exceptions import (
     LoxoneConnectionError,
     LoxonePublicKeyMismatchError,
 )
-from test_structure_over_websocket import _RSA, _HttpSession
 
 EXPECTED_PIN = "sha256:" + hashlib.sha256(_RSA.publickey().export_key("DER")).hexdigest()
 OTHER_PIN = "sha256:" + "0" * 64
