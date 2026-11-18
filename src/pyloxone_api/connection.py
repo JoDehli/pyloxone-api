@@ -2048,6 +2048,23 @@ class LoxoneConnection(LoxoneBaseConnection):
             except Exception as e:
                 _LOGGER.error(f"Callback error: {e}", exc_info=True)
 
+        def _spawn_callback(msg, name: str) -> bool:
+            """Hand ``msg`` to the external callback as a tracked task.
+
+            The callback is optional: ``run()`` and ``start_listening()``
+            accept ``callback=None``. This is the only place that
+            checks for it, so every dispatch path goes through here
+            instead of spawning ``_run_callback`` itself. The check is
+            ``is None`` on purpose: a callable may be falsy (an object
+            with ``__len__`` or ``__bool__``) and is still a callback.
+
+            Returns whether a task was spawned.
+            """
+            if callback is None:
+                return False
+            self._spawn_task(_run_callback(msg), name=name)
+            return True
+
         async def _dispatch_body(header: MessageHeader, body: bytes) -> None:
             nonlocal dispatched_since_yield
             msg_type = header.message_type
@@ -2083,15 +2100,14 @@ class LoxoneConnection(LoxoneBaseConnection):
                     name=_EVENT_TASK_NAMES.get(msg_type, "loxone.event"),
                 )
             if (
-                callback
-                and msg_type in callback_types
+                msg_type in callback_types
                 # Auth replies carry keys and tokens: the connection consumes
                 # them itself, they are never state for the callback.
                 and not is_auth_response(parsed_message)
             ):
-                self._spawn_task(
-                    _run_callback(parsed_message),
-                    name=_CALLBACK_TASK_NAMES.get(msg_type, "loxone.callback"),
+                _spawn_callback(
+                    parsed_message,
+                    _CALLBACK_TASK_NAMES.get(msg_type, "loxone.callback"),
                 )
             # Let handlers run in bounded batches: yielding on
             # every event adds scheduler overhead, while never
@@ -2111,15 +2127,12 @@ class LoxoneConnection(LoxoneBaseConnection):
                 # heartbeat; awaiting it would serialise it
                 # behind any in-flight user callback and
                 # noticeably slow the keepalive loop.
-                self._spawn_task(
-                    _run_callback(Keepalive("")),
-                    name="loxone.keepalive",
-                )
-                # Keepalives are infrequent (roughly every 30 s),
-                # so yield immediately to deliver the liveness
-                # callback without affecting the high-rate state
-                # event path.
-                await asyncio.sleep(0)
+                if _spawn_callback(Keepalive(""), "loxone.keepalive"):
+                    # Keepalives are infrequent (roughly every 30 s),
+                    # so yield immediately to deliver the liveness
+                    # callback without affecting the high-rate state
+                    # event path.
+                    await asyncio.sleep(0)
             # Other bodyless types (UNKNOWN, etc.) are logged at
             # DEBUG — there is no canonical handler for them.
 
