@@ -351,9 +351,60 @@ class TextStatesTable(BaseMessage):
 class DaytimerStatesTable(BaseMessage):
     message_type = MessageType.DAYTIMER_STATES
 
-    # We dont currently handle this.
+    # typedef struct {
+    #     PUUID uuid;          // 128-Bit uuid
+    #     double dDefValue;    // 64-Bit Float (little endian) default value
+    #     int nrEntries;       // 32-Bit Integer (little endian)
+    #     // entries (EvDataDaytimerEntry) follow here
+    # } PACKED EvDataDaytimer;
+    #
+    # typedef struct {
+    #     int nMode;           // number of mode
+    #     int nFrom;           // from-time in minutes since midnight
+    #     int nTo;             // to-time in minutes since midnight
+    #     int bNeedActivate;   // need activate (trigger)
+    #     double dValue;       // value (if analog daytimer)
+    # } PACKED EvDataDaytimerEntry;
+    _HEADER = struct.Struct("<di")
+    _ENTRY = struct.Struct("<iiiid")
+
     def as_dict(self):
-        return {}
+        """Return ``{uuid: {"default_value": float, "entries": [...]}}``.
+
+        A truncated daytimer at the end is dropped (logged at DEBUG);
+        the complete ones before it are returned.
+        """
+        event_dict = {}
+        message = self.message
+        start = 0
+        record = _UUID_BYTES_LEN + self._HEADER.size
+        while start + record <= len(message):
+            uuid_key = _uuid_str(message[start : start + _UUID_BYTES_LEN])
+            default, count = self._HEADER.unpack_from(message, start + _UUID_BYTES_LEN)
+            start += record
+            end = start + count * self._ENTRY.size
+            if count < 0 or end > len(message):
+                break
+            entries = []
+            for offset in range(start, end, self._ENTRY.size):
+                mode, frm, to, need_activate, value = self._ENTRY.unpack_from(message, offset)
+                entries.append(
+                    {
+                        "mode": mode,
+                        "from": frm,
+                        "to": to,
+                        "need_activate": bool(need_activate),
+                        "value": value,
+                    }
+                )
+            event_dict[uuid_key] = {"default_value": default, "entries": entries}
+            start = end
+        if start != len(message):
+            _LOGGER.debug(
+                "DaytimerStatesTable: %d trailing byte(s) dropped",
+                len(message) - start,
+            )
+        return event_dict
 
 
 class OutOfServiceIndicator(BaseMessage):
@@ -373,8 +424,60 @@ class Keepalive(BaseMessage):
 class WeatherStatesTable(BaseMessage):
     message_type = MessageType.WEATHER_STATES
 
+    # typedef struct {
+    #     PUUID uuid;                // 128-Bit uuid
+    #     unsigned int lastUpdate;   // seconds since 2009 (UTC)
+    #     int nrEntries;             // 32-Bit Integer (little endian)
+    #     // entries (EvDataWeatherEntry) follow here
+    # } PACKED EvDataWeather;
+    #
+    # EvDataWeatherEntry: five 32-bit ints followed by six doubles, all
+    # little endian, in the order of ``_FIELDS``.
+    _HEADER = struct.Struct("<Ii")
+    _ENTRY = struct.Struct("<iiiiidddddd")
+    _FIELDS = (
+        "timestamp",
+        "weather_type",
+        "wind_direction",
+        "solar_radiation",
+        "relative_humidity",
+        "temperature",
+        "perceived_temperature",
+        "dew_point",
+        "precipitation",
+        "wind_speed",
+        "barometric_pressure",
+    )
+
     def as_dict(self):
-        return {}
+        """Return ``{uuid: {"last_update": int, "entries": [...]}}``.
+
+        ``last_update`` is in seconds since 1.1.2009 (UTC). A truncated
+        table at the end is dropped (logged at DEBUG).
+        """
+        event_dict = {}
+        message = self.message
+        start = 0
+        record = _UUID_BYTES_LEN + self._HEADER.size
+        while start + record <= len(message):
+            uuid_key = _uuid_str(message[start : start + _UUID_BYTES_LEN])
+            last_update, count = self._HEADER.unpack_from(message, start + _UUID_BYTES_LEN)
+            start += record
+            end = start + count * self._ENTRY.size
+            if count < 0 or end > len(message):
+                break
+            entries = [
+                dict(zip(self._FIELDS, self._ENTRY.unpack_from(message, offset)))
+                for offset in range(start, end, self._ENTRY.size)
+            ]
+            event_dict[uuid_key] = {"last_update": last_update, "entries": entries}
+            start = end
+        if start != len(message):
+            _LOGGER.debug(
+                "WeatherStatesTable: %d trailing byte(s) dropped",
+                len(message) - start,
+            )
+        return event_dict
 
 
 def parse_header(header: bytes) -> MessageHeader:

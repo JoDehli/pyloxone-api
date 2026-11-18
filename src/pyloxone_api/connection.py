@@ -354,6 +354,7 @@ class LoxoneBaseConnection:
         executor: Optional[Callable[..., Any]] = None,
         token_change_callback: Optional[Callable[..., Any]] = None,
         token_store: Optional[TokenStore] = None,
+        forward_daytimer_weather: bool = False,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -372,6 +373,8 @@ class LoxoneBaseConnection:
             )
         if not isinstance(verify_ssl, bool):
             raise ValueError("verify_ssl must be a boolean")
+        if not isinstance(forward_daytimer_weather, bool):
+            raise ValueError("forward_daytimer_weather must be a boolean")
 
         self.host = host
         self.username = username
@@ -386,6 +389,9 @@ class LoxoneBaseConnection:
         self.verify_ssl = verify_ssl
         # Refuse a Miniserver that answers as a remote (non-local) connection.
         self.local_only = local_only
+        # Daytimer and weather tables carry dicts, not scalars, so they
+        # reach the message callback only when the caller asks for them.
+        self.forward_daytimer_weather = forward_daytimer_weather
         # Optional executor for off-loading blocking work (e.g.
         # ``json.loads`` of the multi-MB ``LoxAPP3.json``) off the
         # event loop. Shape matches ``hass.async_add_executor_job``
@@ -2035,6 +2041,11 @@ class LoxoneConnection(LoxoneBaseConnection):
             MessageType.TEXT,
             MessageType.KEEPALIVE,
         }
+        if self.forward_daytimer_weather:
+            callback_types |= {
+                MessageType.DAYTIMER_STATES,
+                MessageType.WEATHER_STATES,
+            }
 
         last_header: Optional[MessageHeader] = None
         body_buffer = bytearray()
