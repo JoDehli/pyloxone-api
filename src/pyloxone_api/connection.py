@@ -15,6 +15,7 @@ import logging
 import ssl
 import time
 import urllib
+import uuid
 from base64 import b64decode, b64encode
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -45,9 +46,11 @@ from .const import (AES_KEY_SIZE, CMD_AUTH_WITH_TOKEN, CMD_CHECK_TOKEN, CMD_ENAB
                     RECONNECT_DELAY, RECONNECT_TRIES, SALT_BYTES,
                     SALT_MAX_AGE_SECONDS, SALT_MAX_USE_COUNT,
                     SECURED_COMMAND_TIMEOUT, TIMEOUT,
-                    TOKEN_PERMISSION, TOKEN_REFRESH_MAX_FAILURES,
+                    DEFAULT_CLIENT_INFO, TOKEN_PERMISSION, TOKEN_PERMISSION_APP,
+                    TOKEN_PERMISSION_WEB, TOKEN_REFRESH_MAX_FAILURES,
                     WEBSOCKET_CLOSE_TIMEOUT, WEBSOCKET_READ_TIMEOUT)
-from .token_store import TokenStore, make_binding, token_from_store
+from .token_store import (TokenStore, client_uuid_from_store, is_loxone_uuid,
+                          make_binding, token_from_store)
 from .exceptions import (LoxoneAuthEscalatedError,
                          LoxoneNoEventSlotsError, LoxoneRemoteAccessDeniedError,
                          LoxoneConnectionClosedOk, LoxoneConnectionError,
@@ -356,6 +359,9 @@ class LoxoneBaseConnection:
         token_change_callback: Optional[Callable[..., Any]] = None,
         token_store: Optional[TokenStore] = None,
         forward_daytimer_weather: bool = False,
+        client_uuid: Optional[str] = None,
+        client_info: str = DEFAULT_CLIENT_INFO,
+        token_permission: int = TOKEN_PERMISSION,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -376,6 +382,21 @@ class LoxoneBaseConnection:
             raise ValueError("verify_ssl must be a boolean")
         if not isinstance(forward_daytimer_weather, bool):
             raise ValueError("forward_daytimer_weather must be a boolean")
+        if client_uuid is not None and not is_loxone_uuid(client_uuid):
+            raise ValueError(
+                "client_uuid must have the form 8-4-4-16 hex digits, "
+                "e.g. 098802e1-02b4-603c-ffffeee000d80cfd"
+            )
+        if not isinstance(client_info, str) or not client_info:
+            raise ValueError("client_info must be a non-empty string")
+        if isinstance(token_permission, bool) or token_permission not in (
+            TOKEN_PERMISSION_WEB,
+            TOKEN_PERMISSION_APP,
+        ):
+            raise ValueError(
+                f"token_permission must be {TOKEN_PERMISSION_WEB} (web) or "
+                f"{TOKEN_PERMISSION_APP} (app), got {token_permission!r}"
+            )
 
         self.host = host
         self.username = username
@@ -558,6 +579,17 @@ class LoxoneBaseConnection:
         if token is None and token_store is not None:
             self._token = self._load_from_token_store()
 
+        # Identifies this client in the Miniserver's token list (spec:
+        # derived from the device identity, or generated and stored). It
+        # is saved with the token, so a restart keeps it.
+        self.client_info = client_info
+        self.token_permission = token_permission
+        self.client_uuid: str = (
+            client_uuid
+            or self._stored_client_uuid(token)
+            or self._new_client_uuid()
+        )
+
         self._key: str = ""
         self._user_salt: str = ""
         self._hash_alg: str = ""
@@ -665,6 +697,7 @@ class LoxoneBaseConnection:
                 "valid_until": self._token.valid_until,
                 "hash_alg": self._token.hash_alg,
                 "unsecure_password": self._token.unsecure_password,
+                "client_uuid": self.client_uuid,
             }
         except AttributeError as e:
             _LOGGER.error(f"Token attributes missing: {e}")
@@ -934,6 +967,40 @@ class LoxoneBaseConnection:
             finally:
                 if self._key_update_event is key_updated_event:
                     self._key_update_event = None
+
+    def _stored_client_uuid(self, token: Optional[dict]) -> Optional[str]:
+        """The client uuid from ``token=`` or the token store, if any."""
+        if token is not None:
+            value = token.get("client_uuid") if isinstance(token, dict) else None
+            return value if is_loxone_uuid(value) else None
+        if self._token_store is None:
+            return None
+        try:
+            return client_uuid_from_store(
+                self._token_store.load(), self._token_binding
+            )
+        except Exception as e:
+            _LOGGER.warning("token_store.load failed while reading client_uuid: %s", e)
+            return None
+
+    @staticmethod
+    def _new_client_uuid() -> str:
+        """A random uuid in the form the Miniserver expects (8-4-4-16)."""
+        h = uuid.uuid4().hex
+        return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:]}"
+
+    def _token_request_command(self, credential_hash: str) -> str:
+        """``getjwt`` (``gettoken`` before 10.2) with this client's parameters."""
+        cmd = (
+            CMD_REQUEST_TOKEN
+            if self.miniserver_version < [10, 2]
+            else CMD_REQUEST_TOKEN_JSON_WEB
+        )
+        return (
+            f"{cmd}/{credential_hash}/{self._encoded_username}/"
+            f"{self.token_permission}/{self.client_uuid}/"
+            f"{percent_encode_credential(self.client_info)}"
+        )
 
     def _load_from_token_store(self) -> LoxoneToken:
         """Read the stored token; any problem means "no token"."""
@@ -3180,10 +3247,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                             raise RuntimeError("Failed to hash credentials")
 
                         # Request new Token
-                        if self.miniserver_version < [10, 2]:
-                            command = f"{CMD_REQUEST_TOKEN}/{new_hash}/{self._encoded_username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
-                        else:
-                            command = f"{CMD_REQUEST_TOKEN_JSON_WEB}/{new_hash}/{self._encoded_username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
+                        command = self._token_request_command(new_hash)
                         await self._message_queue.put(MessageForQueue(command, True))
 
                 except LoxoneUnauthorisedError:

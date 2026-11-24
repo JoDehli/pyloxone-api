@@ -8,7 +8,8 @@ with two methods as ``token_store=`` to :class:`LoxoneConnection`:
   refresh with the new token dict, and with ``None`` when the token is reset.
 
 The dict has these keys: ``token``, ``valid_until``, ``hash_alg``,
-``unsecure_password`` and ``binding`` (``url``, ``port``, ``user``). The
+``unsecure_password``, ``client_uuid`` and ``binding`` (``url``, ``port``,
+``user``). The
 binding ties a stored token to the connection it was issued for, so a token
 of another Miniserver or user is never offered.
 
@@ -17,12 +18,15 @@ File permissions and atomic writes belong to the application.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional, Protocol
 
 from .const import TOKEN_MIN_REMAINING_SECONDS
 from .loxone_token import LoxoneToken
 
 _HASH_ALGS = ("SHA1", "SHA256")
+# Client uuid form from the spec, e.g. "098802e1-02b4-603c-ffffeee000d80cfd".
+_LOXONE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{16}")
 
 
 class TokenStore(Protocol):
@@ -81,3 +85,20 @@ def token_from_store(data: Any, binding: dict[str, Any]) -> Optional[LoxoneToken
     if token.seconds_to_expire() <= TOKEN_MIN_REMAINING_SECONDS:
         return None
     return token
+
+
+def client_uuid_from_store(data: Any, binding: dict[str, Any]) -> Optional[str]:
+    """The ``client_uuid`` saved for ``binding``, or ``None``.
+
+    Read even when the token itself is unusable: the uuid identifies this
+    client on the Miniserver and stays the same across tokens.
+    """
+    if not isinstance(data, dict) or data.get("binding") != binding:
+        return None
+    value = data.get("client_uuid")
+    return value if is_loxone_uuid(value) else None
+
+
+def is_loxone_uuid(value: Any) -> bool:
+    """``True`` for the uuid form the Miniserver expects (8-4-4-16 hex)."""
+    return isinstance(value, str) and _LOXONE_UUID.fullmatch(value) is not None

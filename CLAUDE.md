@@ -76,6 +76,10 @@ existing findings (mostly E501). New files should be clean.
   (aiohttp 3.14 and later); older versions get the same header from the
   fallback. Keep the `getattr` lookup: do not remove it as duplicate code.
   A test guards this.
+- Tokens are requested with permission 4 (app, long lived), as the spec
+  advises for apps; `token_permission=2` keeps the old web token. Each client
+  sends its own `client_uuid` (generated, saved with the token) instead of
+  one hard-coded uuid for every installation.
 - The source distribution excludes internal notes (`[tool.hatch.build.targets.sdist]`).
   Internal notes do not belong in the repository.
 
