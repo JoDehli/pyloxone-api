@@ -224,14 +224,36 @@ def _strip_padding(plain: bytes) -> bytes:
     return plain
 
 
+# Close codes that are retried, with the meaning from the spec. Used only to
+# make the "connection lost" log line readable.
+CLOSE_CODE_REASONS: dict[int, str] = {
+    4004: "a user was changed on the Miniserver",
+    4005: "the connected user was changed (by themselves or another user)",
+    4007: "the Miniserver is performing an update",
+    4008: "the Miniserver has no free event slot",
+}
+
+
+def _close_code(exc: websockets.exceptions.ConnectionClosed) -> int | None:
+    rcvd = getattr(exc, "rcvd", None)
+    return getattr(rcvd, "code", None)
+
+
+def _close_reason(exc: websockets.exceptions.ConnectionClosed) -> str | None:
+    """Return the spec meaning of the close code, or ``None`` if unknown."""
+    code = _close_code(exc)
+    if code in FATAL_CLOSE_CODES:
+        return FATAL_CLOSE_CODES[code]
+    return CLOSE_CODE_REASONS.get(code)
+
+
 def _raise_if_fatal_close(exc: websockets.exceptions.ConnectionClosed) -> None:
     """Raise ``LoxoneUnauthorisedError`` for a close code in ``FATAL_CLOSE_CODES``.
 
     The ``run()`` supervisor does not retry that error; the integration
     reports the authentication failure instead of reconnecting forever.
     """
-    rcvd = getattr(exc, "rcvd", None)
-    code = getattr(rcvd, "code", None)
+    code = _close_code(exc)
     if code in FATAL_CLOSE_CODES:
         raise LoxoneUnauthorisedError(
             f"Miniserver closed the connection: {FATAL_CLOSE_CODES[code]} "
@@ -434,7 +456,7 @@ class LoxoneBaseConnection:
         # through this marker.
         self._last_frame_time: float = time.monotonic()
 
-        # Set when the Miniserver rejects our credentials (401 / 4003)
+        # Set when the Miniserver rejects our credentials (401 / 423)
         # and the raising exception never left the fire-and-forget
         # event task. The recv loop and the keepalive loop re-raise it
         # so it reaches the ``run()`` supervisor.
@@ -1375,7 +1397,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                         )
                         self._note_connection_lost(reason)
                         raise LoxoneConnectionError(reason)
-                    # A hard auth rejection (401/4003) recorded on the
+                    # A hard auth rejection (401/423) recorded on the
                     # fire-and-forget event task is escalated here as
                     # well — the Miniserver answers a rejected token
                     # with silence, so without this check we would wait
@@ -1620,8 +1642,10 @@ class LoxoneConnection(LoxoneBaseConnection):
                     # for the reconnect-and-self-heal path, not a hard
                     # failure. Log at WARNING and surface as
                     # LoxoneConnectionError so the supervisor reloads.
+                    reason = _close_reason(e)
                     self._note_connection_lost(
                         f"websocket closed with error: {e}"
+                        + (f" ({reason})" if reason else "")
                     )
                     raise LoxoneConnectionError
                 except websockets.exceptions.ConnectionClosed as e:
@@ -1833,7 +1857,7 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         This helper centralises the policy:
 
-        - Code in :data:`LLRSP_UNAUTHORISED_CODES` (401, 4003) →
+        - Code in :data:`LLRSP_UNAUTHORISED_CODES` (401, 423) →
           raise :class:`LoxoneUnauthorisedError`. The supervisor
           propagates this as a hard auth failure.
         - Any other non-200 code → log at WARNING and return; the
@@ -2167,7 +2191,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                 self._last_frame_time = time.monotonic()
 
                 # An auth handler may have recorded a hard credential
-                # rejection (401 / 4003) on the fire-and-forget event
+                # rejection (401 / 423) on the fire-and-forget event
                 # task, where it could not be propagated. Surface it
                 # here so it reaches the ``run()`` supervisor instead
                 # of being logged away inside ``_websocket_event``.

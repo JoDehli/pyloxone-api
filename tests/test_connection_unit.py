@@ -1750,7 +1750,7 @@ class TestCheckAuthResponse:
     Before: each of the five auth handlers logged the error and
     returned. Wrong-password restarts would silently keep
     retrying. After: a single helper inspects the code, raises
-    :class:`LoxoneUnauthorisedError` for 401/4003, logs at
+    :class:`LoxoneUnauthorisedError` for 401/423, logs at
     WARNING for other non-200 codes, and is a no-op for 200.
     """
 
@@ -1786,16 +1786,16 @@ class TestCheckAuthResponse:
         with pytest.raises(LoxoneUnauthorisedError):
             conn._check_auth_response(self._msg(401), "gettoken")
 
-    def test_4003_raises_unauthorised(self, conn):
-        """Legacy Miniserver firmware returns 4003 for
-        unauthorised (instead of the modern 401).
+    def test_423_raises_unauthorised(self, conn):
+        """423 means the user is disabled (spec, Error-Codes).
+        4003 is a close code and is covered in test_spec_codes.py.
         """
         from pyloxone_api.exceptions import (
             LoxoneUnauthorisedError,
         )
 
         with pytest.raises(LoxoneUnauthorisedError):
-            conn._check_auth_response(self._msg(4003), "getkey2")
+            conn._check_auth_response(self._msg(423), "getkey2")
 
     def test_other_non_ok_logs_at_warning(self, conn):
         """Codes outside the unauthorised set (e.g. 500) are
@@ -2696,7 +2696,7 @@ class TestReceiveWatchdog:
 
 
 class TestAuthEscalation:
-    """401/4003 must reach the ``run()`` supervisor (P2/P3).
+    """401/423 must reach the ``run()`` supervisor (P2/P3).
 
     Before: ``_check_auth_response`` raised inside the auth handlers,
     where the enclosing ``except Exception`` logged it away — and the

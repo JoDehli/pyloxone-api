@@ -222,6 +222,12 @@ class LoxoneAsyncHttpClient:
             err.response = response
             raise err
 
+        elif response.status == 423:
+            _LOGGER.error(f"User disabled (423): {content}")
+            err = LoxoneUnauthorisedError(f"User is disabled: {content}")
+            err.response = response
+            raise err
+
         elif response.status == 403:
             _LOGGER.error(f"Forbidden (403): {content}")
             raise PermissionError(f"Access forbidden: {content}")
