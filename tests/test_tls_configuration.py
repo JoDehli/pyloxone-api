@@ -120,6 +120,44 @@ def test_websocket_verifies_certificates_by_default() -> None:
     assert connection._websocket_ssl_context() is None
 
 
+def test_verified_websocket_context_is_built_off_the_loop_once() -> None:
+    calls = []
+
+    async def executor(target, *args):
+        calls.append(target)
+        return target(*args)
+
+    connection = LoxoneConnection(
+        host="192.0.2.1",
+        port=443,
+        username="user",
+        password="password",
+        executor=executor,
+    )
+
+    async def run():
+        first = await connection._verified_ssl_context()
+        second = await connection._verified_ssl_context()
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert calls == [ssl.create_default_context]
+    assert first is second
+    assert first.verify_mode == ssl.CERT_REQUIRED
+    assert first.check_hostname is True
+
+
+def test_verified_websocket_context_without_executor_uses_a_thread() -> None:
+    connection = LoxoneConnection(
+        host="192.0.2.1", port=443, username="user", password="password"
+    )
+
+    context = asyncio.run(connection._verified_ssl_context())
+
+    assert context.verify_mode == ssl.CERT_REQUIRED
+
+
 def test_get_returns_async_context_manager() -> None:
     """``LoxoneAsyncHttpClient.get`` is an async context
     manager — the response body is read inside the ``async with``
