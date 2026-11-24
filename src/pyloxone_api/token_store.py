@@ -8,7 +8,8 @@ with two methods as ``token_store=`` to :class:`LoxoneConnection`:
   refresh with the new token dict, and with ``None`` when the token is reset.
 
 The dict has these keys: ``token``, ``valid_until``, ``hash_alg``,
-``unsecure_password`` and ``binding`` (``url``, ``port``, ``user``). The
+``unsecure_password``, ``public_key_pin`` and ``binding`` (``url``, ``port``,
+``user``). The
 binding ties a stored token to the connection it was issued for, so a token
 of another Miniserver or user is never offered.
 
@@ -17,6 +18,7 @@ File permissions and atomic writes belong to the application.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional, Protocol
 
 from .const import TOKEN_MIN_REMAINING_SECONDS
@@ -81,3 +83,26 @@ def token_from_store(data: Any, binding: dict[str, Any]) -> Optional[LoxoneToken
     if token.seconds_to_expire() <= TOKEN_MIN_REMAINING_SECONDS:
         return None
     return token
+
+
+# "sha256:" + 64 hex digits: SHA-256 of the DER-encoded RSA public key.
+_PIN = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def normalise_pin(value: Any) -> Optional[str]:
+    """The pin in canonical form (lowercase), or ``None`` if malformed."""
+    if not isinstance(value, str):
+        return None
+    pin = value.strip().lower()
+    return pin if _PIN.fullmatch(pin) else None
+
+
+def pin_from_store(data: Any, binding: dict[str, Any]) -> Optional[str]:
+    """The ``public_key_pin`` saved for ``binding``, or ``None``.
+
+    Read even when the token itself is unusable: the pin belongs to the
+    Miniserver, not to a token.
+    """
+    if not isinstance(data, dict) or data.get("binding") != binding:
+        return None
+    return normalise_pin(data.get("public_key_pin"))

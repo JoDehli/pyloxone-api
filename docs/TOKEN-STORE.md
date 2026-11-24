@@ -39,12 +39,22 @@ writes slow media should hand the write to a thread itself (for example
   "valid_until": 412345678.0,
   "hash_alg": "SHA256",
   "unsecure_password": false,
+  "public_key_pin": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
   "binding": {"url": "192.0.2.1:8080", "port": 8080, "user": "example-user"}
 }
 ```
 
 Treat `token` as a secret: it logs in as the user. Store it with file
 permissions 0600 or in a secret store, and never put it in logs.
+
+`public_key_pin` is the SHA-256 fingerprint of the Miniserver's public key,
+learned on the first connection (trust on first use). The library reads it
+back from the store, also when the stored token is no longer usable, and
+refuses a Miniserver that presents another key with
+`LoxonePublicKeyMismatchError` (not retried by `run()`). After replacing or
+resetting the Miniserver, pass the new fingerprint as
+`LoxoneConnection(..., public_key_pin="sha256:...")` or remove the stored
+one. The pin does not protect the very first connection.
 
 `binding` ties the token to the connection it was issued for. `load()`
 returns the dict as it was saved. The library checks the binding itself.
