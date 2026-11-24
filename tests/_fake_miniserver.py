@@ -32,11 +32,13 @@ def ll(control: str, value, code: int = 200) -> bytes:
 class FakeMiniserver:
     """``websockets`` client stand-in. ``sent`` lists the decrypted commands."""
 
-    def __init__(self, conn, structure=None, authwithtoken_code: int = 200, version="2026-11-01 10:00:00"):
+    def __init__(self, conn, structure=None, authwithtoken_code: int = 200, version="2026-11-01 10:00:00",
+                 structure_message_type: int = 1):
         self.conn = conn
         self.structure = STRUCTURE if structure is None else structure
         self.authwithtoken_code = authwithtoken_code
         self.version = version
+        self.structure_message_type = structure_message_type
         self.sent: list[str] = []
         self.raw_sent: list[str] = []
         self._inbox: asyncio.Queue = asyncio.Queue()
@@ -95,7 +97,8 @@ class FakeMiniserver:
         elif command == "jdev/sps/LoxAPPversion3":
             self._reply(ll("dev/sps/LoxAPPversion3", self.version))
         elif command == "data/LoxAPP3.json":
-            self._reply(json.dumps(self.structure).encode())
+            # Identifier 1 (Binary File), as a real Miniserver 15.1 sends it.
+            self._reply(json.dumps(self.structure).encode(), self.structure_message_type)
         elif command == "jdev/sps/enablebinstatusupdate":
             self._reply(ll("dev/sps/enablebinstatusupdate", "1"))
         elif command == "keepalive":

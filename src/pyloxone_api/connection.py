@@ -2168,9 +2168,16 @@ class LoxoneConnection(LoxoneBaseConnection):
         async def _dispatch_body(header: MessageHeader, body: bytes) -> None:
             nonlocal dispatched_since_yield
             msg_type = header.message_type
-            if msg_type == MessageType.TEXT:
+            waiter = self._structure_waiter
+            if msg_type == MessageType.TEXT or (
+                # Real Miniservers (seen on 15.1) announce LoxAPP3.json
+                # with identifier 1 (Binary File) although the spec says
+                # text files come as text messages.
+                msg_type == MessageType.BINARY
+                and waiter is not None
+                and not waiter.done()
+            ):
                 body = check_and_decode_if_needed(body)
-                waiter = self._structure_waiter
                 if (
                     waiter is not None
                     and not waiter.done()

@@ -161,6 +161,18 @@ class TestBootstrapSession:
         assert conn._websocket_deferred is True
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("message_type", [0, 1])
+    async def test_structure_with_text_or_binary_file_identifier(self, servers, message_type):
+        # The spec says text files come as text messages (identifier 0);
+        # a real Miniserver 15.1 announces LoxAPP3.json as Binary File (1).
+        conn = _conn()
+        servers(conn, structure_message_type=message_type)
+        await asyncio.wait_for(
+            conn.open(session=_HttpSession(), connect_websocket=False), 5
+        )
+        assert conn.structure_file["controls"] == STRUCTURE["controls"]
+
+    @pytest.mark.asyncio
     async def test_new_token_from_bootstrap_is_kept(self, servers):
         conn = _conn()
         servers(conn)
