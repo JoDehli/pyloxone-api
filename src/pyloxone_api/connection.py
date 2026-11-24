@@ -399,6 +399,8 @@ class LoxoneBaseConnection:
         # (``async def executor(target, *args)`` → awaitable).
         # ``None`` (the default) means call the function inline.
         self.executor: Optional[Callable[..., Any]] = executor
+        # Verifying TLS context for wss://, built once off the event loop.
+        self._default_ssl_context: ssl.SSLContext | None = None
         self.connection: LoxoneClientConnection | None = None
         self._pending_task = []
         # Background tasks that should be tracked across the
@@ -613,6 +615,22 @@ class LoxoneBaseConnection:
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         return ssl_context
+
+    async def _verified_ssl_context(self) -> ssl.SSLContext:
+        """Default (verifying) TLS context, created once off the event loop.
+
+        ``ssl.create_default_context`` reads the system CA store from disk.
+        Without an ``ssl`` argument websockets creates one on every connect
+        inside the event loop, which Home Assistant reports as a blocking
+        call (``load_default_certs``).
+        """
+        if self._default_ssl_context is None:
+            if self.executor is not None:
+                context = await self.executor(ssl.create_default_context)
+            else:
+                context = await asyncio.to_thread(ssl.create_default_context)
+            self._default_ssl_context = context
+        return self._default_ssl_context
 
     def _build_websocket_options(self) -> dict:
         """Build the kwargs dict for ``wslib.connect(...)``.
@@ -2662,7 +2680,10 @@ class LoxoneConnection(LoxoneBaseConnection):
 
             try:
                 websocket_options = self._build_websocket_options()
-                if ssl_context := self._websocket_ssl_context():
+                ssl_context = self._websocket_ssl_context()
+                if ssl_context is None and self.scheme == "https":
+                    ssl_context = await self._verified_ssl_context()
+                if ssl_context is not None:
                     websocket_options["ssl"] = ssl_context
 
                 connection = await asyncio.wait_for(
