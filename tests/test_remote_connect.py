@@ -138,6 +138,26 @@ def test_getip_200_without_address():
         parse_getip_response(200, b"{}")
 
 
+def test_getip_relay_ip_becomes_dyndns_host():
+    # Real reply of connect.loxonecloud.com (2026-11): IP and port only.
+    body = {
+        "cmd": "getip",
+        "Code": 200,
+        "DNS-Status": "registered",
+        "DataCenter": "loxonecloud.com",
+        "IPHTTPS": "195.201.222.243:36434",
+        "PortOpenHTTPS": True,
+        "RemoteConnect": True,
+    }
+    assert parse_getip_response(200, json.dumps(body), SERIAL) == RemoteAddress(
+        "https", f"195-201-222-243.{SERIAL}.dyndns.loxonecloud.com:36434"
+    )
+    body["DataCenter"] = "loxonecloud.cn"
+    assert parse_getip_response(200, json.dumps(body), SERIAL).url == (
+        f"195-201-222-243.{SERIAL}.dyndns.loxonecloud.cn:36434"
+    )
+
+
 def test_error_classes_drive_the_supervisor():
     # Transient: retried by run(); denied: final.
     assert issubclass(LoxoneRemoteConnectError, LoxoneConnectionError)
@@ -166,7 +186,7 @@ async def test_resolve_uses_the_new_endpoint(monkeypatch):
     async with aiohttp.ClientSession() as session:
         address = await resolve_remote_address("50:4f:94:a2:3d:b1", session)
     assert address == RemoteAddress("https", "relay.example:443")
-    assert calls == [f"https://connect.loxonecloud.com/getip?snr={SERIAL}"]
+    assert calls == [f"https://connect.loxonecloud.com/getip?snr={SERIAL}&json=true"]
 
 
 async def test_resolve_network_error_is_retryable(monkeypatch):

@@ -104,7 +104,26 @@ def _message(data: Any, fallback: str) -> str:
     return fallback
 
 
-def parse_getip_response(status: int, body: bytes | str) -> RemoteAddress:
+def _dyndns_host(address: str, serial: str | None, data_center: Any) -> str:
+    """``1.2.3.4:443`` -> ``1-2-3-4.{snr}.dyndns.{data center}:443``.
+
+    The relay answers with an IP and port, but its certificate is issued for
+    the dyndns host name (spec "Support for distributed data centers", step 4).
+    Anything that is not an IPv4 literal, or an unknown serial, is kept as is.
+    """
+    host, sep, port = address.rpartition(":")
+    if not sep:
+        host, port = address, ""
+    if serial is None or not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host):
+        return address
+    domain = data_center if isinstance(data_center, str) and data_center else "loxonecloud.com"
+    name = f"{host.replace('.', '-')}.{serial}.dyndns.{domain}"
+    return f"{name}:{port}" if port else name
+
+
+def parse_getip_response(
+    status: int, body: bytes | str, serial: str | None = None
+) -> RemoteAddress:
     """Turn a ``/getip`` reply into an address or the matching exception."""
     text = body.decode("utf-8", "replace") if isinstance(body, bytes) else body
     try:
@@ -121,7 +140,8 @@ def parse_getip_response(status: int, body: bytes | str) -> RemoteAddress:
             return _address_from_url(data["url"])
         # CloudDNS format: prefer the TLS address.
         if data.get("IPHTTPS"):
-            return _address_from_url(f"https://{data['IPHTTPS']}")
+            host = _dyndns_host(str(data["IPHTTPS"]), serial, data.get("DataCenter"))
+            return _address_from_url(f"https://{host}")
         if data.get("IP"):
             return _address_from_url(f"http://{data['IP']}")
         msg = "Remote Connect returned no address"
@@ -154,7 +174,8 @@ async def resolve_remote_address(
     if snr is None:
         msg = f"Invalid Miniserver serial number: {serial!r}"
         raise ValueError(msg)
-    url = f"https://{REMOTE_CONNECT_HOST}/getip?snr={snr}"
+    # Without ``json=true`` the service answers in XML (``<Answer .../>``).
+    url = f"https://{REMOTE_CONNECT_HOST}/getip?snr={snr}&json=true"
     try:
         if session is not None:
             status, body = await _fetch(session, url, timeout)
@@ -164,7 +185,7 @@ async def resolve_remote_address(
     except (aiohttp.ClientError, TimeoutError, OSError) as err:
         msg = f"Remote Connect not reachable: {err}"
         raise LoxoneRemoteConnectError(msg) from err
-    address = parse_getip_response(status, body)
+    address = parse_getip_response(status, body, snr)
     _LOGGER.debug(
         "Remote Connect: Miniserver %s reachable at %s://%s",
         snr,
