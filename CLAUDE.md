@@ -31,7 +31,7 @@ existing findings (mostly E501). New files should be clean.
   supervisor, commands, tokens, preflight.
 - `src/pyloxone_api/token_store.py`: the `TokenStore` protocol and validation of stored tokens.
 - `src/pyloxone_api/const.py`, `exceptions.py`: constants and exceptions.
-- `src/pyloxone_api/loxone_http_client.py`: HTTP requests (bootstrap, structure file).
+- `src/pyloxone_api/loxone_http_client.py`: HTTP requests of the bootstrap (no credentials).
 - `docs/CALLBACKS.md`, `docs/TOKEN-STORE.md`: public documentation.
 - `release.md`: the release procedure.
 
@@ -76,6 +76,13 @@ existing findings (mostly E501). New files should be clean.
   (aiohttp 3.14 and later); older versions get the same header from the
   fallback. Keep the `getattr` lookup: do not remove it as duplicate code.
   A test guards this.
+- No credentials go over HTTP. The bootstrap requests (apiKey, cfg/api,
+  getPublicKey) need none; the structure file is loaded over the websocket
+  after the login (`_after_login`). `open()` runs a short bootstrap session
+  for it, so `structure_file` is filled when `open()` returns; the next
+  listening session skips the download (`_structure_fresh`). A rejected
+  stored token in that session is dropped and the bootstrap logs in once
+  more with the password.
 - The source distribution excludes internal notes (`[tool.hatch.build.targets.sdist]`).
   Internal notes do not belong in the repository.
 

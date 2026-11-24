@@ -47,8 +47,8 @@ class LoxoneAsyncHttpClient:
     def __init__(
         self,
         url: str,
-        username: str,
-        password: str,
+        username: str | None = None,
+        password: str | None = None,
         scheme: str = "http",
         verify_ssl: bool = True,
         session: aiohttp.ClientSession = None,
@@ -56,9 +56,11 @@ class LoxoneAsyncHttpClient:
         # Validate input parameters
         if not url:
             raise ValueError("URL cannot be empty")
-        if not username:
+        if (username is None) != (password is None):
+            raise ValueError("Pass both username and password, or neither")
+        if username is not None and not username:
             raise ValueError("Username cannot be empty")
-        if not password:
+        if password is not None and not password:
             raise ValueError("Password cannot be empty")
         if scheme not in ("http", "https"):
             raise ValueError(f"Invalid scheme '{scheme}'. Must be 'http' or 'https'")
@@ -66,10 +68,15 @@ class LoxoneAsyncHttpClient:
             raise ValueError("verify_ssl must be a boolean")
         # The credentials are fixed, so the header is built once. This also
         # rejects an invalid user name here instead of on the first request.
-        try:
-            self._auth_header = _basic_auth_header(username, password)
-        except ValueError as err:
-            raise ValueError(f"Username is not valid for HTTP basic auth: {err}") from err
+        # Without credentials no Authorization header is sent: the bootstrap
+        # requests (apiKey, cfg/api, getPublicKey) need none, and the spec
+        # says login information is never sent as plain text.
+        self._auth_header: str | None = None
+        if username is not None:
+            try:
+                self._auth_header = _basic_auth_header(username, password)
+            except ValueError as err:
+                raise ValueError(f"Username is not valid for HTTP basic auth: {err}") from err
 
         if session is None:
             self.session = aiohttp.ClientSession()
@@ -116,9 +123,10 @@ class LoxoneAsyncHttpClient:
         url = f"{self.base_url}{endpoint}"
         _LOGGER.debug(f"Making GET request to: {url}")
         request_kwargs = {
-            "headers": {"Authorization": self._auth_header},
             "timeout": aiohttp.ClientTimeout(total=self.timeout),
         }
+        if self._auth_header is not None:
+            request_kwargs["headers"] = {"Authorization": self._auth_header}
         if self.scheme == "https":
             request_kwargs["ssl"] = self.verify_ssl
 

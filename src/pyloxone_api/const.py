@@ -14,7 +14,9 @@ RECONNECT_TRIES = 5  # number of tries before giving up on a bootstrap GET
 MAX_RECONNECT_DELAY = 60  # cap on the per-attempt sleep, in seconds
 
 # Loxone constants
-MAX_WEBSOCKET_MESSAGE_SIZE: Final = 5 * 1024 * 1024  # 5 megabytes = 5,242,880 bytes
+# The structure file (LoxAPP3.json) arrives over the websocket and can be
+# several megabytes on large installations, so the frame limit leaves room.
+MAX_WEBSOCKET_MESSAGE_SIZE: Final = 32 * 1024 * 1024  # 32 MiB
 # Size of the binary frame header (``WsBinHdr``): cBinType, cIdentifier,
 # cInfo, cReserved and a 32-bit little-endian payload length.
 MESSAGE_HEADER_SIZE: Final = 8
@@ -66,6 +68,11 @@ MAX_REFRESH_DELAY: Final = 86400  # 60 * 60 * 24  # 1 day
 
 
 LOXAPPPATH: Final = "/data/LoxAPP3.json"
+# Websocket command for the structure file. Sent after the login; the reply
+# is a text message that holds the JSON document itself (no LL envelope).
+CMD_GET_STRUCTURE_FILE: Final = "data/LoxAPP3.json"
+# Seconds to wait for the structure file on the websocket.
+STRUCTURE_FILE_TIMEOUT: Final = 60
 
 CMD_KEEP_ALIVE: Final = "keepalive"
 CMD_GET_API_KEY: Final = "/jdev/cfg/apiKey"
