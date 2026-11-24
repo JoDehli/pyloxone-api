@@ -41,6 +41,24 @@ for the protocol, the stored format and a JSON-file example.
 connection = LoxoneConnection(host, username, password, token_store=my_store)
 ```
 
+### Remote Connect
+
+To reach a Miniserver through Loxone Remote Connect, pass
+`connect.loxonecloud.com/<serial number>` as the host. Before every
+connection the library asks `connect.loxonecloud.com` where the Miniserver
+is reachable (spec V17.0) and connects there over HTTPS/WSS. The deprecated
+`dns.loxonecloud.com/<serial number>` is accepted and resolved the same way.
+
+```python
+connection = LoxoneConnection("connect.loxonecloud.com/504F94A23DB1", username, password)
+```
+
+Loxone may refuse to give out the address, e.g. when remote access is
+only permitted for the Loxone App and Loxone Config. The library then raises
+`LoxoneRemoteConnectDeniedError` (final, with the service's status in
+`code`); temporary failures raise `LoxoneRemoteConnectError`, which `run()`
+retries.
+
 The public API is exported from `pyloxone_api` (see `__all__`).
 Everything else is internal and may change between releases.
 
