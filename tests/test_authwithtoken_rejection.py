@@ -63,6 +63,9 @@ class TestTokenRejected:
 
     @pytest.mark.asyncio
     async def test_success_still_authenticates(self, conn):
+        # open() has just loaded the structure file, so the session
+        # counts as authenticated right after the login.
+        conn._structure_fresh = True
         await conn._websocket_event(_reply(200))
 
         assert conn._authenticated_event.is_set()

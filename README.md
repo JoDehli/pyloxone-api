@@ -30,6 +30,19 @@ from pyloxone_api import LoxoneConnection, LoxoneException
 connection = LoxoneConnection(host, username, password, port=8080)
 ```
 
+### How a connection starts
+
+1. HTTP: `jdev/cfg/apiKey`, `jdev/cfg/api` and the public key. These
+   requests need no login, so no credentials are sent over HTTP.
+2. `open()` loads the structure file (`LoxAPP3.json`) on a short websocket
+   session: key exchange, login with the token (or the password hash, if
+   there is no usable token), `data/LoxAPP3.json`, close. After `open()`,
+   `connection.structure_file` is filled.
+3. `start_listening()` / `run()` open the websocket for listening, log in
+   and enable state updates. After a reconnect the structure file is loaded
+   again on that session, after the login and before `"connected"` - unless
+   `jdev/sps/LoxAPPversion3` shows it is unchanged.
+
 ### Keeping the token between runs
 
 A token lets the library log in without the password. To keep it across
@@ -51,6 +64,7 @@ API-compatible with it.
 
 - [Callbacks](docs/CALLBACKS.md): what the library calls back into, when, and what happens on errors.
 - [Saving the token](docs/TOKEN-STORE.md): keep the login token between restarts with `token_store`.
+- [Caching the structure file](docs/STRUCTURE-CACHE.md): skip downloading an unchanged `LoxAPP3.json`.
 - [Live web view](dev_tools/README.md): a developer tool that shows a Miniserver's structure and live values in the browser.
 
 ## Development
